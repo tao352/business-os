@@ -61,8 +61,60 @@ export const SmartRuleSchema = z.object({
   actions: z.array(RuleActionSchema).min(1),
   is_active: z.boolean().default(true),
   version: z.number().int().default(1),
+  execution_count: z.number().int().default(0),
+  last_triggered_at: z.string().datetime().optional().nullable(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
 
 export type SmartRule = z.infer<typeof SmartRuleSchema>;
+
+export interface CreateRuleInput {
+  name: string;
+  description?: string;
+  trigger_type: TriggerType;
+  conditions?: RuleCondition[];
+  actions: RuleAction[];
+  is_active?: boolean;
+}
+
+export interface UpdateRuleInput {
+  name?: string;
+  description?: string;
+  trigger_type?: TriggerType;
+  conditions?: RuleCondition[];
+  actions?: RuleAction[];
+  is_active?: boolean;
+}
+
+export interface RuleExecutionRecord {
+  id: string;
+  organizationId: string;
+  ruleId: string;
+  triggerType: string;
+  entityType: string;
+  entityId: string;
+  actionsExecuted: Array<{
+    action_type: string;
+    status: string;
+    result?: unknown;
+  }>;
+  status: "SUCCESS" | "FAILED" | "SKIPPED";
+  errorMessage?: string | null;
+  executionDurationMs: number;
+  hopDepth: number;
+  createdAt: Date | string;
+}
+
+export interface DryRunResult {
+  ruleName: string;
+  triggerType: TriggerType;
+  totalSampled: number;
+  matchedCount: number;
+  matchingEntityIds: string[];
+  simulatedActions: Array<{
+    action_type: ActionType;
+    targetCount: number;
+    description: string;
+  }>;
+}
