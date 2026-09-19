@@ -1,11 +1,19 @@
 import type { TenantContext, RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
+import {
+  WhatsAppApiClient,
+  DefaultWhatsAppApiClient,
+} from "../whatsapp/whatsapp-client.js";
 
 export interface ActionExecutionResult {
   action_type: string;
   status: "SUCCESS" | "FAILED" | "SKIPPED";
   result?: Record<string, unknown>;
   error?: string;
+}
+
+export interface ExecuteRuleActionOptions {
+  whatsAppClient?: WhatsAppApiClient;
 }
 
 /**
@@ -18,6 +26,7 @@ export async function executeRuleAction(
   action: RuleAction,
   entityType: string,
   entity: Record<string, unknown>,
+  options?: ExecuteRuleActionOptions,
 ): Promise<ActionExecutionResult> {
   const entityId = String(entity.id);
 
@@ -281,11 +290,81 @@ export async function executeRuleAction(
       }
 
       case "whatsapp.send_template": {
-        // Will be connected to WhatsApp engine in Phase 11
+        if (entityType !== "lead" || !entity.phone) {
+          return {
+            action_type: action.action_type,
+            status: "SKIPPED",
+            error: "Action requires a lead with a phone number",
+          };
+        }
+
+        const templateName = String(
+          action.params.template_name || "welcome_lead",
+        );
+        const languageCode = String(action.params.language || "ar");
+        const variables = Array.isArray(action.params.variables)
+          ? action.params.variables.map(String)
+          : [];
+
+        const intRes = await tx.query(
+          `SELECT * FROM whatsapp_integrations
+           WHERE organization_id = $1 AND is_active = true LIMIT 1`,
+          [context.organizationId],
+        );
+
+        if (intRes.rows.length === 0) {
+          return {
+            action_type: action.action_type,
+            status: "SKIPPED",
+            error: "No active WhatsApp integration found for organization",
+          };
+        }
+
+        const integration = intRes.rows[0];
+        const client =
+          options?.whatsAppClient || new DefaultWhatsAppApiClient();
+
+        const sendRes = await client.sendTemplate(
+          integration.phone_number_id,
+          integration.access_token,
+          String(entity.phone),
+          templateName,
+          languageCode,
+          variables,
+        );
+
+        await tx.query(
+          `INSERT INTO whatsapp_messages (
+            organization_id, wamid, lead_id, direction, sender_phone,
+            recipient_phone, message_type, body, status
+          ) VALUES ($1, $2, $3, 'OUTBOUND', $4, $5, 'template', $6, 'SENT')`,
+          [
+            context.organizationId,
+            sendRes.wamid,
+            entityId,
+            integration.phone_number || integration.phone_number_id,
+            String(entity.phone),
+            `Template: ${templateName}`,
+          ],
+        );
+
+        await tx.query(
+          `INSERT INTO activities (
+            organization_id, lead_id, user_id, activity_type, summary, details
+          ) VALUES ($1, $2, $3, 'WHATSAPP', $4, $5)`,
+          [
+            context.organizationId,
+            entityId,
+            context.userId,
+            `Automated WhatsApp Template Sent: ${templateName}`,
+            JSON.stringify({ wamid: sendRes.wamid, templateName, variables }),
+          ],
+        );
+
         return {
           action_type: action.action_type,
           status: "SUCCESS",
-          result: { templateName: action.params.template_name, queued: true },
+          result: { wamid: sendRes.wamid, templateName },
         };
       }
 

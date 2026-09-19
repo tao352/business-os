@@ -6,3 +6,4 @@ export * from "./audit.js";
 export * from "./views.js";
 export * from "./import-export.js";
 export * from "./integrations.js";
+export * from "./whatsapp.js";

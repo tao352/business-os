@@ -9,3 +9,4 @@ export * from "./real-estate/index.js";
 export * from "./import-export/index.js";
 export * from "./integrations/index.js";
 export * from "./rules/index.js";
+export * from "./whatsapp/index.js";

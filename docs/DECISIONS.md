@@ -73,3 +73,19 @@
   3. Replay / retried webhook requests are acknowledged with 200 OK and marked `DUPLICATE_IGNORED` without inserting redundant leads.
   4. Repeat submissions matching existing leads by phone number update the lead and record a timestamped timeline activity note without creating duplicate lead rows.
 - **Rationale:** Provides guaranteed zero-duplicate lead ingestion, timing-safe cryptographic security, and maintains rich engagement history for sales reps.
+
+---
+
+## ADR-006: Official WhatsApp Cloud API Architecture & Real-Time Timeline Integration
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** Customer conversations occur heavily over WhatsApp in the real estate sector. Unofficial WhatsApp Web scrapers frequently get numbers banned and break on UI changes.
+- **Decision:**
+  1. Rely exclusively on Meta's official WhatsApp Business Cloud API (Graph API).
+  2. Implement HMAC-SHA256 signature verification and verify challenge handshake for inbound webhooks.
+  3. Inbound messages automatically link to existing contacts by phone number or auto-create new CRM leads with `source = 'WHATSAPP'`.
+  4. Two-way messages append in real-time to the lead's activity timeline (`activity_type = 'WHATSAPP'`).
+  5. Connect Smart Rules automation engine to dispatch pre-approved Meta message templates via action `whatsapp.send_template`.
+- **Rationale:** Eliminates number banning risk, guarantees 99.9% uptime, provides clean two-way customer messaging history, and automates instant outreach upon lead creation.
+
