@@ -246,3 +246,19 @@
   5. **Honest Ops Console Access Control:** Removed false `success: true` stubs for unimplemented operational actions, raising explicit `NotImplementedError`.
   6. **Database Runtime Role Hardening:** Applied migration `0014_h0_runtime_role_hardening.sql` enforcing `ALTER ROLE app_user NOBYPASSRLS`, revoking public schema `CREATE`, and restricting runtime application access to strict DML (`SELECT`, `INSERT`, `UPDATE`, `DELETE`).
 - **Rationale:** Completely stabilizes concurrent CI pipelines, prevents deadlocks and lock contention during outbound network calls, protects encrypted tokens from being transmitted as raw ciphertext, and enforces least-privilege security boundaries at the database engine level.
+
+---
+
+## ADR-018: H0 Stabilization Patch v2.1 — SECURITY DEFINER Routers, Outbox Leases, and Durable WhatsApp Delivery
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Deep review of commit `16c495a` identified edge cases in RLS tenant resolution for external webhooks, runtime role credential management, outbox crash recovery, rule action idempotency scope, and network ambiguity handling in WhatsApp dispatch.
+- **Decision:**
+  1. **SECURITY DEFINER Pre-Routing Functions:** Created `public.resolve_meta_tenant` and `public.resolve_whatsapp_tenant` owned by dedicated non-login role `business_os_router_owner WITH NOLOGIN BYPASSRLS`. Search path locked to `pg_catalog, public`. Fully schema-qualified. `REVOKE EXECUTE FROM PUBLIC`, `GRANT EXECUTE TO app_user`. Returns ONLY minimal routing tuple `(organization_id, integration_id)`, zero secrets or tokens exposed.
+  2. **Dedicated Runtime DB Role Provisioning:** Decoupled `app_user` password provisioning from normal startup migrations into a standalone administrative script (`scripts/provision-db-roles.ts`). In production, strictly requires `APP_DB_PASSWORD` (min 16 chars, rejects weak/trivial passwords).
+  3. **Outbox Lease Tracking & Crash Recovery:** Added `processing_started_at` and `worker_id` columns to `outbox_events`. Atomic claim CTE reclaims jobs stuck in `PROCESSING` past 5-minute lease expiry. Missing handlers transition immediately to `FAILED` with diagnostics rather than remaining stuck in `PROCESSING`.
+  4. **Execution-Level Rule Action Idempotency:** Scoped action idempotency keys to `sha256(organizationId:ruleId:executionId:actionIndex)`. Same-execution retries are safely deduplicated, while future rule executions on the same lead/rule trigger without suppression.
+  5. **Decoupled Meta Graph Fetch:** In `ingestMetaLead`, resolve integration via `resolve_meta_tenant`, execute external Graph API network fetch completely outside database transactions, then enter a short tenant transaction for deduplication and persistence.
+  6. **Durable WhatsApp Delivery Semantics:** Replaced claims of "exactly-once" delivery with an explicit multi-state lifecycle: `PENDING` -> `SENDING` -> `SENT` | `FAILED` | `UNKNOWN`. Atomic pre-dispatch write of message and outbox event. Network timeouts / ambiguous errors during `SENDING` transition status to `UNKNOWN` to avoid blind duplicate sends. Later webhooks reconcile against `wamid`.
+- **Rationale:** Eliminates RLS deadlock on inbound webhooks, guarantees resilient crash recovery in asynchronous outbox processing, avoids double-messaging end clients in Egyptian real estate workflows, and maintains least privilege and zero data leakage across tenants.

@@ -24,20 +24,31 @@ export interface IngestMetaLeadInput {
 
 /**
  * Ingests a Meta Lead into the tenant CRM with idempotency, deduplication, and attribution.
+ * External Meta Graph API requests execute strictly outside database transactions.
  */
 export async function ingestMetaLead(
   context: TenantContext,
   input: IngestMetaLeadInput,
 ): Promise<MetaIngestionResult> {
-  return await withTenantContext(context.organizationId, async (tx) => {
-    // 1. Fetch integration configuration with decrypted credentials
-    const integration = await getDecryptedMetaIntegration(
-      context,
-      input.pageId,
-      tx,
-    );
+  // 1. Fetch integration configuration with decrypted credentials (short query, no long transaction)
+  const integration = await getDecryptedMetaIntegration(context, input.pageId);
 
-    // 2. Idempotency check via webhook_events
+  // 2. Fetch lead details from Graph API externally (STRICTLY OUTSIDE DATABASE TRANSACTION)
+  let details = input.leadDetails;
+  if (!details) {
+    const fetcher = input.leadFetcher || new DefaultMetaLeadFetcher();
+    details = await fetcher.fetchLeadDetails(
+      input.leadgenId,
+      integration.page_access_token,
+    );
+  }
+
+  // 3. Parse field data & campaign attribution
+  const parsed = parseMetaLeadData(details, integration.field_mappings || {});
+
+  // 4. Open short tenant database transaction strictly for deduplication & persistence
+  return await withTenantContext(context.organizationId, async (tx) => {
+    // Idempotency check via webhook_events
     const eventRes = await tx.query(
       `INSERT INTO webhook_events (organization_id, provider, event_id, payload, status)
        VALUES ($1, 'META', $2, $3, 'PENDING')
@@ -68,19 +79,6 @@ export async function ingestMetaLead(
     }
 
     const webhookEventId = eventRes.rows[0].id;
-
-    // 3. Fetch lead details from Graph API if not passed directly
-    let details = input.leadDetails;
-    if (!details) {
-      const fetcher = input.leadFetcher || new DefaultMetaLeadFetcher();
-      details = await fetcher.fetchLeadDetails(
-        input.leadgenId,
-        integration.page_access_token,
-      );
-    }
-
-    // 4. Parse field data & campaign attribution
-    const parsed = parseMetaLeadData(details, integration.field_mappings || {});
 
     // 5. Deduplication check by phone number within the organization
     const existingLeadRes = await tx.query(

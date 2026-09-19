@@ -18,6 +18,8 @@ export interface ActionExecutionResult {
 
 export interface ExecuteRuleActionOptions {
   whatsAppClient?: WhatsAppApiClient;
+  executionId?: string;
+  actionIndex?: number;
 }
 
 /**
@@ -337,11 +339,13 @@ export async function executeRuleAction(
 
         const integration = intRes.rows[0];
 
-        // 1. Transactional Outbox Enqueue (Deterministic Idempotency Key, Zero secrets in payload)
+        // 1. Transactional Outbox Enqueue (Deterministic Execution-Level Idempotency Key)
+        const executionId = options?.executionId || crypto.randomUUID();
+        const actionIndex = options?.actionIndex ?? 0;
         const idempotencyKey = crypto
           .createHash("sha256")
           .update(
-            `${context.organizationId}:${ruleId || "direct"}:${entityId}:${action.action_type}:${templateName}`,
+            `${context.organizationId}:${ruleId || "direct"}:${executionId}:${actionIndex}`,
           )
           .digest("hex");
 

@@ -1,4 +1,4 @@
-import { pool } from "@business-os/database";
+import { pool, withTenantContext } from "@business-os/database";
 import type { TenantContext } from "@business-os/types";
 import { decryptSecret } from "../security/crypto-service.js";
 import type { TransactionClient } from "../crm/audit-helper.js";
@@ -26,22 +26,60 @@ export interface DecryptedWhatsAppIntegration {
   is_active: boolean;
 }
 
+export interface TenantRoutingResult {
+  organizationId: string;
+  integrationId: string;
+}
+
+/**
+ * Pre-routing helper using SECURITY DEFINER function resolve_meta_tenant.
+ * Resolves only organizationId and integrationId before a TenantContext exists,
+ * without exposing secrets or credentials.
+ */
+export async function resolveMetaTenant(
+  pageId: string,
+): Promise<TenantRoutingResult | null> {
+  const res = await pool.query(
+    `SELECT organization_id, integration_id FROM public.resolve_meta_tenant($1)`,
+    [pageId],
+  );
+  if (res.rows.length === 0) return null;
+  return {
+    organizationId: res.rows[0].organization_id,
+    integrationId: res.rows[0].integration_id,
+  };
+}
+
+/**
+ * Pre-routing helper using SECURITY DEFINER function resolve_whatsapp_tenant.
+ * Resolves only organizationId and integrationId before a TenantContext exists,
+ * without exposing secrets or credentials.
+ */
+export async function resolveWhatsAppTenant(
+  phoneNumberId: string,
+): Promise<TenantRoutingResult | null> {
+  const res = await pool.query(
+    `SELECT organization_id, integration_id FROM public.resolve_whatsapp_tenant($1)`,
+    [phoneNumberId],
+  );
+  if (res.rows.length === 0) return null;
+  return {
+    organizationId: res.rows[0].organization_id,
+    integrationId: res.rows[0].integration_id,
+  };
+}
+
 /**
  * Retrieves Meta Integration with decrypted credentials.
  * Ensures business logic never receives encrypted ciphertext.
+ * Always executes within a tenant-scoped session to satisfy FORCE RLS under runtime app_user.
  */
 export async function getDecryptedMetaIntegration(
   context: TenantContext,
   pageId: string,
   customClient?: TransactionClient,
 ): Promise<DecryptedMetaIntegration> {
-  const client = customClient || (await pool.connect());
-  const shouldRelease =
-    !customClient &&
-    "release" in client &&
-    typeof (client as any).release === "function";
-
-  try {
+  const executeQuery = async (client: TransactionClient) => {
     const res = await client.query(
       `SELECT * FROM meta_integrations
        WHERE organization_id = $1 AND page_id = $2 AND is_active = true`,
@@ -60,28 +98,25 @@ export async function getDecryptedMetaIntegration(
       page_access_token: decryptSecret(row.page_access_token),
       app_secret: row.app_secret ? decryptSecret(row.app_secret) : null,
     };
-  } finally {
-    if (shouldRelease) {
-      (client as any).release();
-    }
+  };
+
+  if (customClient) {
+    return executeQuery(customClient);
   }
+
+  return withTenantContext(context.organizationId, (tx) => executeQuery(tx));
 }
 
 /**
  * Retrieves WhatsApp Integration with decrypted credentials by phone number ID.
+ * Always executes within a tenant-scoped session to satisfy FORCE RLS under runtime app_user.
  */
 export async function getDecryptedWhatsAppIntegration(
   context: TenantContext,
   phoneNumberId: string,
   customClient?: TransactionClient,
 ): Promise<DecryptedWhatsAppIntegration> {
-  const client = customClient || (await pool.connect());
-  const shouldRelease =
-    !customClient &&
-    "release" in client &&
-    typeof (client as any).release === "function";
-
-  try {
+  const executeQuery = async (client: TransactionClient) => {
     const res = await client.query(
       `SELECT * FROM whatsapp_integrations
        WHERE organization_id = $1 AND phone_number_id = $2 AND is_active = true`,
@@ -100,28 +135,25 @@ export async function getDecryptedWhatsAppIntegration(
       access_token: decryptSecret(row.access_token),
       app_secret: row.app_secret ? decryptSecret(row.app_secret) : null,
     };
-  } finally {
-    if (shouldRelease) {
-      (client as any).release();
-    }
+  };
+
+  if (customClient) {
+    return executeQuery(customClient);
   }
+
+  return withTenantContext(context.organizationId, (tx) => executeQuery(tx));
 }
 
 /**
  * Retrieves WhatsApp Integration with decrypted credentials by internal ID.
+ * Always executes within a tenant-scoped session to satisfy FORCE RLS under runtime app_user.
  */
 export async function getDecryptedWhatsAppIntegrationById(
   context: TenantContext,
   integrationId: string,
   customClient?: TransactionClient,
 ): Promise<DecryptedWhatsAppIntegration> {
-  const client = customClient || (await pool.connect());
-  const shouldRelease =
-    !customClient &&
-    "release" in client &&
-    typeof (client as any).release === "function";
-
-  try {
+  const executeQuery = async (client: TransactionClient) => {
     const res = await client.query(
       `SELECT * FROM whatsapp_integrations
        WHERE organization_id = $1 AND id = $2 AND is_active = true`,
@@ -140,9 +172,11 @@ export async function getDecryptedWhatsAppIntegrationById(
       access_token: decryptSecret(row.access_token),
       app_secret: row.app_secret ? decryptSecret(row.app_secret) : null,
     };
-  } finally {
-    if (shouldRelease) {
-      (client as any).release();
-    }
+  };
+
+  if (customClient) {
+    return executeQuery(customClient);
   }
+
+  return withTenantContext(context.organizationId, (tx) => executeQuery(tx));
 }

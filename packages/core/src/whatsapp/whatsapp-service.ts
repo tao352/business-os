@@ -1,4 +1,6 @@
+import crypto from "node:crypto";
 import { withTenantContext } from "@business-os/database";
+import { enqueueOutboxEvent } from "../rules/outbox-service.js";
 import type {
   TenantContext,
   SendWhatsAppTemplateInput,
@@ -24,62 +26,54 @@ export interface ProcessWebhookResult {
 }
 
 /**
- * Sends an outbound WhatsApp message (Template or Free-form text) to a lead/contact.
- * Network dispatch occurs strictly outside database transactions to eliminate distributed failure loops.
+ * Sends an outbound WhatsApp message (Template or Free-form text) using durable outbox delivery semantics.
+ * Follows explicit lifecycle: PENDING -> SENDING -> SENT | FAILED | UNKNOWN.
+ * Provider call occurs strictly outside database transactions.
  */
 export async function sendWhatsAppMessage(
   context: TenantContext,
   input: SendWhatsAppTemplateInput | SendWhatsAppTextInput,
   client?: WhatsAppApiClient,
+  executionOptions?: { messageId?: string; idempotencyKey?: string },
 ): Promise<WhatsAppMessageRecord> {
   const apiClient = client || new DefaultWhatsAppApiClient();
 
-  // 1. Fetch Integration credentials with decrypted token (Read outside transaction)
+  // 1. Fetch Integration credentials with decrypted token
   const integration = await getDecryptedWhatsAppIntegration(
     context,
     input.phoneNumberId,
   );
 
-  // 2. Dispatch via API Client (NETWORK CALL STRICTLY OUTSIDE DATABASE TRANSACTION)
-  let wamid: string;
+  const messageId = executionOptions?.messageId || crypto.randomUUID();
+  const idempotencyKey =
+    executionOptions?.idempotencyKey ||
+    crypto
+      .createHash("sha256")
+      .update(`${context.organizationId}:wa:${messageId}`)
+      .digest("hex");
+
   let messageType: "template" | "text";
   let bodyText: string;
 
   if ("templateName" in input) {
     messageType = "template";
     bodyText = `Template: ${input.templateName}`;
-    const res = await apiClient.sendTemplate(
-      input.phoneNumberId,
-      integration.access_token,
-      input.recipientPhone,
-      input.templateName,
-      input.languageCode || "en",
-      input.variables,
-    );
-    wamid = res.wamid;
   } else {
     messageType = "text";
     bodyText = input.text;
-    const res = await apiClient.sendText(
-      input.phoneNumberId,
-      integration.access_token,
-      input.recipientPhone,
-      input.text,
-    );
-    wamid = res.wamid;
   }
 
-  // 3. Persist sent message record and timeline activity in an atomic database transaction
-  return await withTenantContext(context.organizationId, async (tx) => {
-    const msgRes = await tx.query(
+  // 2. Atomically persist PENDING message record and outbox event before provider dispatch
+  await withTenantContext(context.organizationId, async (tx) => {
+    await tx.query(
       `INSERT INTO whatsapp_messages (
-        organization_id, wamid, lead_id, direction, sender_phone,
+        id, organization_id, wamid, lead_id, direction, sender_phone,
         recipient_phone, message_type, body, status
-      ) VALUES ($1, $2, $3, 'OUTBOUND', $4, $5, $6, $7, 'SENT')
-      RETURNING *`,
+      ) VALUES ($1, $2, NULL, $3, 'OUTBOUND', $4, $5, $6, $7, 'PENDING')
+      ON CONFLICT (id) DO NOTHING`,
       [
+        messageId,
         context.organizationId,
-        wamid,
         input.leadId || null,
         integration.display_phone_number || input.phoneNumberId,
         input.recipientPhone,
@@ -88,9 +82,91 @@ export async function sendWhatsAppMessage(
       ],
     );
 
+    await enqueueOutboxEvent(
+      tx,
+      context,
+      "whatsapp.send_outbound",
+      {
+        messageId,
+        phoneNumberId: input.phoneNumberId,
+        recipientPhone: input.recipientPhone,
+        messageType,
+        bodyText,
+        templateName: "templateName" in input ? input.templateName : undefined,
+        languageCode: "languageCode" in input ? input.languageCode : undefined,
+        variables: "variables" in input ? input.variables : undefined,
+        leadId: input.leadId,
+      },
+      idempotencyKey,
+    );
+  });
+
+  // 3. Transition message status to SENDING
+  await withTenantContext(context.organizationId, async (tx) => {
+    await tx.query(
+      `UPDATE whatsapp_messages SET status = 'SENDING' WHERE id = $1 AND organization_id = $2`,
+      [messageId, context.organizationId],
+    );
+  });
+
+  // 4. Provider Dispatch (NETWORK CALL STRICTLY OUTSIDE DATABASE TRANSACTION)
+  let wamid: string;
+  try {
+    if ("templateName" in input) {
+      const res = await apiClient.sendTemplate(
+        input.phoneNumberId,
+        integration.access_token,
+        input.recipientPhone,
+        input.templateName,
+        input.languageCode || "en",
+        input.variables,
+      );
+      wamid = res.wamid;
+    } else {
+      const res = await apiClient.sendText(
+        input.phoneNumberId,
+        integration.access_token,
+        input.recipientPhone,
+        input.text,
+      );
+      wamid = res.wamid;
+    }
+  } catch (err: any) {
+    // 5. Ambiguous failure recovery:
+    // If a network timeout or reset occurred during SENDING, transition to UNKNOWN
+    // rather than blind immediate resend to prevent customer message duplication.
+    const isAmbiguousNetworkError =
+      err.code === "ECONNRESET" ||
+      err.code === "ETIMEDOUT" ||
+      err.message?.includes("timeout") ||
+      err.message?.includes("fetch failed") ||
+      err.message?.includes("network");
+
+    const failureStatus = isAmbiguousNetworkError ? "UNKNOWN" : "FAILED";
+
+    await withTenantContext(context.organizationId, async (tx) => {
+      await tx.query(
+        `UPDATE whatsapp_messages SET status = $1 WHERE id = $2 AND organization_id = $3`,
+        [failureStatus, messageId, context.organizationId],
+      );
+    });
+
+    throw err;
+  }
+
+  // 6. On Meta confirmation, store WAMID and transition status to SENT
+  return await withTenantContext(context.organizationId, async (tx) => {
+    const msgRes = await tx.query(
+      `UPDATE whatsapp_messages
+       SET status = 'SENT', wamid = $1
+       WHERE id = $2 AND organization_id = $3
+       RETURNING *`,
+      [wamid, messageId, context.organizationId],
+    );
+
     const msg = msgRes.rows[0];
 
-    // 4. Record Activity on Lead Timeline if leadId present
+    // 7. Record Activity on Lead Timeline if leadId present
     if (input.leadId) {
       await tx.query(
         `INSERT INTO activities (

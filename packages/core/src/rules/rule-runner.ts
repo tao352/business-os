@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { withTenantContext } from "@business-os/database";
 import { logger } from "@business-os/logger";
 import type {
@@ -82,6 +83,8 @@ export async function triggerRules(
       const executedActions: ActionExecutionResult[] = [];
 
       let hasFailure = false;
+      const executionId = crypto.randomUUID();
+      let actionIndex = 0;
       for (const action of actions) {
         const actionResult = await executeRuleAction(
           tx,
@@ -90,8 +93,9 @@ export async function triggerRules(
           action,
           entityType,
           entity,
-          { whatsAppClient: options.whatsAppClient },
+          { whatsAppClient: options.whatsAppClient, executionId, actionIndex },
         );
+        actionIndex++;
         executedActions.push(actionResult);
         if (actionResult.status === "FAILED") {
           hasFailure = true;
