@@ -2,6 +2,7 @@ import { withTenantContext } from '@business-os/database';
 import type { TenantContext, LeadStatus } from '@business-os/types';
 import { assertPermission, can } from '../permissions/checker.js';
 import { recordAuditLog } from './audit-helper.js';
+import { validateCustomData } from '../metadata/custom-fields-compiler.js';
 
 export interface CreateLeadInput {
   fullName: string;
@@ -24,7 +25,7 @@ export interface ListLeadsFilters {
 }
 
 /**
- * Creates a new lead with audit logging and an initial activity note.
+ * Creates a new lead with custom field validation, audit logging and an initial activity note.
  */
 export async function createLead(context: TenantContext, input: CreateLeadInput) {
   assertPermission(context, 'create', 'lead');
@@ -32,6 +33,17 @@ export async function createLead(context: TenantContext, input: CreateLeadInput)
   return await withTenantContext(context.organizationId, async (tx) => {
     const status: LeadStatus = input.status || 'NEW';
     const source = input.source || 'MANUAL';
+
+    // 1. Fetch active custom field definitions and validate payload
+    const defsRes = await tx.query(
+      `SELECT * FROM custom_field_definitions
+       WHERE organization_id = $1 AND entity_type = 'lead' AND is_active = true`,
+      [context.organizationId]
+    );
+
+    const validatedCustomData = defsRes.rows.length > 0
+      ? validateCustomData(defsRes.rows, input.customData || {})
+      : (input.customData || {});
 
     const res = await tx.query(
       `INSERT INTO leads (
@@ -48,7 +60,7 @@ export async function createLead(context: TenantContext, input: CreateLeadInput)
         input.assignedUserId || null,
         input.campaignId || null,
         source,
-        JSON.stringify(input.customData || {}),
+        JSON.stringify(validatedCustomData),
       ]
     );
 
@@ -262,6 +274,68 @@ export async function assignLead(
         JSON.stringify({ previousAssignee, targetUserId }),
       ]
     );
+
+    return updated;
+  });
+}
+
+export interface UpdateLeadInput {
+  fullName?: string;
+  phone?: string;
+  email?: string | null;
+  customData?: Record<string, unknown>;
+}
+
+/**
+ * Updates lead details with dynamic custom field validation and audit logging.
+ */
+export async function updateLead(
+  context: TenantContext,
+  leadId: string,
+  input: UpdateLeadInput
+) {
+  return await withTenantContext(context.organizationId, async (tx) => {
+    const existing = await tx.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    if (existing.rows.length === 0) {
+      throw new Error('Lead not found');
+    }
+    const currentLead = existing.rows[0];
+    assertPermission(context, 'update', 'lead', currentLead);
+
+    let updatedCustomData = currentLead.custom_data;
+    if (input.customData) {
+      const defsRes = await tx.query(
+        `SELECT * FROM custom_field_definitions
+         WHERE organization_id = $1 AND entity_type = 'lead' AND is_active = true`,
+        [context.organizationId]
+      );
+      const mergedCustomData = { ...currentLead.custom_data, ...input.customData };
+      updatedCustomData = defsRes.rows.length > 0
+        ? validateCustomData(defsRes.rows, mergedCustomData)
+        : mergedCustomData;
+    }
+
+    const updatedFullName = input.fullName !== undefined ? input.fullName.trim() : currentLead.full_name;
+    const updatedPhone = input.phone !== undefined ? input.phone.trim() : currentLead.phone;
+    const updatedEmail = input.email !== undefined ? input.email?.trim() || null : currentLead.email;
+
+    const res = await tx.query(
+      `UPDATE leads
+       SET full_name = $1, phone = $2, email = $3, custom_data = $4, updated_at = NOW()
+       WHERE id = $5
+       RETURNING *`,
+      [updatedFullName, updatedPhone, updatedEmail, JSON.stringify(updatedCustomData), leadId]
+    );
+
+    const updated = res.rows[0];
+
+    await recordAuditLog(tx, context, {
+      action: 'UPDATE',
+      entityType: 'lead',
+      entityId: leadId,
+      beforeState: currentLead,
+      afterState: updated,
+    });
 
     return updated;
   });
