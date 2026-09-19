@@ -1,14 +1,9 @@
-import { withTenantContext } from '@business-os/database';
-import type { TenantContext } from '@business-os/types';
-import { assertPermission } from '../permissions/checker.js';
+import { withTenantContext } from "@business-os/database";
+import type { TenantContext } from "@business-os/types";
+import { assertPermission } from "../permissions/checker.js";
 
 export type ActivityType =
-  | 'CALL'
-  | 'WHATSAPP'
-  | 'EMAIL'
-  | 'MEETING'
-  | 'NOTE'
-  | 'STATUS_CHANGE';
+  "CALL" | "WHATSAPP" | "EMAIL" | "MEETING" | "NOTE" | "STATUS_CHANGE";
 
 export interface LogActivityInput {
   leadId: string;
@@ -20,14 +15,17 @@ export interface LogActivityInput {
 /**
  * Logs an interaction on the lead's chronological timeline.
  */
-export async function logActivity(context: TenantContext, input: LogActivityInput) {
-  assertPermission(context, 'update', 'lead');
+export async function logActivity(
+  context: TenantContext,
+  input: LogActivityInput,
+) {
+  assertPermission(context, "update", "lead");
 
   return await withTenantContext(context.organizationId, async (tx) => {
     // 1. Update lead's last_contacted_at timestamp
     await tx.query(
-      'UPDATE leads SET last_contacted_at = NOW(), updated_at = NOW() WHERE id = $1',
-      [input.leadId]
+      "UPDATE leads SET last_contacted_at = NOW(), updated_at = NOW() WHERE id = $1",
+      [input.leadId],
     );
 
     // 2. Insert the activity record
@@ -43,7 +41,7 @@ export async function logActivity(context: TenantContext, input: LogActivityInpu
         input.activityType,
         input.summary.trim(),
         JSON.stringify(input.details || {}),
-      ]
+      ],
     );
 
     return res.rows[0];
@@ -53,8 +51,11 @@ export async function logActivity(context: TenantContext, input: LogActivityInpu
 /**
  * Retrieves the complete chronological activity timeline for a lead.
  */
-export async function listLeadActivities(context: TenantContext, leadId: string) {
-  assertPermission(context, 'read', 'lead');
+export async function listLeadActivities(
+  context: TenantContext,
+  leadId: string,
+) {
+  assertPermission(context, "read", "lead");
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
@@ -64,7 +65,7 @@ export async function listLeadActivities(context: TenantContext, leadId: string)
        JOIN users u ON u.id = a.user_id
        WHERE a.lead_id = $1
        ORDER BY a.created_at DESC`,
-      [leadId]
+      [leadId],
     );
 
     return res.rows;

@@ -1,19 +1,19 @@
-import crypto from 'node:crypto';
-import { pool } from '@business-os/database';
-import type { TenantContext } from '@business-os/types';
-import { verifyTenantToken } from './jwt.js';
+import crypto from "node:crypto";
+import { pool } from "@business-os/database";
+import type { TenantContext } from "@business-os/types";
+import { verifyTenantToken } from "./jwt.js";
 
 export class AuthenticationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'AuthenticationError';
+    this.name = "AuthenticationError";
   }
 }
 
 export class AuthorizationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'AuthorizationError';
+    this.name = "AuthorizationError";
   }
 }
 
@@ -23,20 +23,20 @@ export class AuthorizationError extends Error {
  */
 export async function resolveTenantContextFromToken(
   token: string | undefined,
-  correlationId?: string
+  correlationId?: string,
 ): Promise<TenantContext> {
   if (!token) {
-    throw new AuthenticationError('Missing authentication token');
+    throw new AuthenticationError("Missing authentication token");
   }
 
   // Clean 'Bearer ' prefix if present
-  const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+  const cleanToken = token.startsWith("Bearer ") ? token.slice(7) : token;
 
   let payload;
   try {
     payload = await verifyTenantToken(cleanToken);
   } catch (err) {
-    throw new AuthenticationError('Invalid or expired authentication token');
+    throw new AuthenticationError("Invalid or expired authentication token");
   }
 
   // Verify real-time database membership state
@@ -47,21 +47,25 @@ export async function resolveTenantContextFromToken(
        FROM organization_memberships m
        JOIN users u ON u.id = m.user_id
        WHERE m.user_id = $1 AND m.organization_id = $2`,
-      [payload.userId, payload.organizationId]
+      [payload.userId, payload.organizationId],
     );
 
     if (res.rows.length === 0) {
-      throw new AuthorizationError('User does not belong to the requested organization');
+      throw new AuthorizationError(
+        "User does not belong to the requested organization",
+      );
     }
 
     const { role, membership_active, user_active } = res.rows[0];
 
     if (!user_active) {
-      throw new AuthenticationError('User account is suspended');
+      throw new AuthenticationError("User account is suspended");
     }
 
     if (!membership_active) {
-      throw new AuthorizationError('Access to this organization has been revoked');
+      throw new AuthorizationError(
+        "Access to this organization has been revoked",
+      );
     }
 
     return {

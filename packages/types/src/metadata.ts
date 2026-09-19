@@ -1,19 +1,19 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const CustomFieldTypeSchema = z.enum([
-  'TEXT',
-  'LONG_TEXT',
-  'NUMBER',
-  'CURRENCY',
-  'DATE',
-  'DATETIME',
-  'BOOLEAN',
-  'SINGLE_SELECT',
-  'MULTI_SELECT',
-  'PHONE',
-  'EMAIL',
-  'URL',
-  'RELATION',
+  "TEXT",
+  "LONG_TEXT",
+  "NUMBER",
+  "CURRENCY",
+  "DATE",
+  "DATETIME",
+  "BOOLEAN",
+  "SINGLE_SELECT",
+  "MULTI_SELECT",
+  "PHONE",
+  "EMAIL",
+  "URL",
+  "RELATION",
 ]);
 
 export type CustomFieldType = z.infer<typeof CustomFieldTypeSchema>;
@@ -23,7 +23,7 @@ export const ValidationRulesSchema = z.object({
   max: z.number().optional(),
   regex: z.string().optional(),
   options: z.array(z.string()).optional(),
-  currency_code: z.string().default('USD').optional(),
+  currency_code: z.string().default("USD").optional(),
   related_entity: z.string().optional(),
 });
 
@@ -32,8 +32,13 @@ export type ValidationRules = z.infer<typeof ValidationRulesSchema>;
 export const CustomFieldDefinitionSchema = z.object({
   id: z.string().uuid(),
   organization_id: z.string().uuid(),
-  entity_type: z.enum(['lead', 'unit', 'project', 'deal', 'contact']),
-  field_key: z.string().regex(/^[a-z0-9_]{2,50}$/, 'Must be lowercase alphanumeric with underscores'),
+  entity_type: z.enum(["lead", "unit", "project", "deal", "contact"]),
+  field_key: z
+    .string()
+    .regex(
+      /^[a-z0-9_]{2,50}$/,
+      "Must be lowercase alphanumeric with underscores",
+    ),
   display_name: z.string().min(2).max(100),
   field_type: CustomFieldTypeSchema,
   validation_rules: ValidationRulesSchema.default({}),

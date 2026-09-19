@@ -1,8 +1,8 @@
-import { pool } from '@business-os/database';
-import { logger } from '@business-os/logger';
-import type { TenantRole } from '@business-os/types';
-import { hashPassword, verifyPassword } from './password.js';
-import { issueTenantToken, type TenantTokenPayload } from './jwt.js';
+import { pool } from "@business-os/database";
+import { logger } from "@business-os/logger";
+import type { TenantRole } from "@business-os/types";
+import { hashPassword, verifyPassword } from "./password.js";
+import { issueTenantToken, type TenantTokenPayload } from "./jwt.js";
 
 export interface RegisterUserInput {
   email: string;
@@ -34,16 +34,19 @@ export async function registerUser(input: RegisterUserInput) {
 
   const client = await pool.connect();
   try {
-    const existing = await client.query('SELECT id FROM users WHERE email = $1', [emailNormalized]);
+    const existing = await client.query(
+      "SELECT id FROM users WHERE email = $1",
+      [emailNormalized],
+    );
     if (existing.rows.length > 0) {
-      throw new Error('User with this email already exists');
+      throw new Error("User with this email already exists");
     }
 
     const res = await client.query(
       `INSERT INTO users (email, full_name, password_hash)
        VALUES ($1, $2, $3)
        RETURNING id, email, full_name, created_at`,
-      [emailNormalized, input.fullName.trim(), passwordHash]
+      [emailNormalized, input.fullName.trim(), passwordHash],
     );
 
     return res.rows[0];
@@ -55,7 +58,10 @@ export async function registerUser(input: RegisterUserInput) {
 /**
  * Authenticates user credentials and returns their memberships and an initial session token if they have an active org.
  */
-export async function authenticateUser(email: string, password: string): Promise<AuthenticateResult> {
+export async function authenticateUser(
+  email: string,
+  password: string,
+): Promise<AuthenticateResult> {
   const emailNormalized = email.trim().toLowerCase();
 
   const client = await pool.connect();
@@ -64,21 +70,21 @@ export async function authenticateUser(email: string, password: string): Promise
       `SELECT id, email, full_name, password_hash, is_active
        FROM users
        WHERE email = $1`,
-      [emailNormalized]
+      [emailNormalized],
     );
 
     if (userRes.rows.length === 0) {
-      throw new Error('Invalid email or password');
+      throw new Error("Invalid email or password");
     }
 
     const user = userRes.rows[0];
     if (!user.is_active) {
-      throw new Error('User account is suspended');
+      throw new Error("User account is suspended");
     }
 
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
-      throw new Error('Invalid email or password');
+      throw new Error("Invalid email or password");
     }
 
     // Retrieve active organization memberships
@@ -88,7 +94,7 @@ export async function authenticateUser(email: string, password: string): Promise
        JOIN organizations o ON o.id = m.organization_id
        WHERE m.user_id = $1 AND m.is_active = true
        ORDER BY o.created_at ASC`,
-      [user.id]
+      [user.id],
     );
 
     const organizations = orgsRes.rows.map((row) => ({
@@ -130,18 +136,22 @@ export async function createOrganization(params: {
   userId: string;
   name: string;
   slug: string;
-  plan?: 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+  plan?: "STARTER" | "GROWTH" | "ENTERPRISE";
 }) {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     // Create organization
     const orgRes = await client.query(
       `INSERT INTO organizations (name, slug, plan)
        VALUES ($1, $2, $3)
        RETURNING id, name, slug, plan, created_at`,
-      [params.name.trim(), params.slug.trim().toLowerCase(), params.plan || 'STARTER']
+      [
+        params.name.trim(),
+        params.slug.trim().toLowerCase(),
+        params.plan || "STARTER",
+      ],
     );
     const org = orgRes.rows[0];
 
@@ -149,19 +159,19 @@ export async function createOrganization(params: {
     await client.query(
       `INSERT INTO organization_memberships (organization_id, user_id, role, is_active)
        VALUES ($1, $2, 'OWNER', true)`,
-      [org.id, params.userId]
+      [org.id, params.userId],
     );
 
-    await client.query('COMMIT');
+    await client.query("COMMIT");
 
     logger.info(
       { organizationId: org.id, userId: params.userId },
-      'Successfully created new organization and assigned OWNER'
+      "Successfully created new organization and assigned OWNER",
     );
 
     return org;
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
@@ -183,16 +193,16 @@ export async function switchOrganization(params: {
       `SELECT role, is_active
        FROM organization_memberships
        WHERE user_id = $1 AND organization_id = $2`,
-      [params.userId, params.targetOrganizationId]
+      [params.userId, params.targetOrganizationId],
     );
 
     if (res.rows.length === 0) {
-      throw new Error('User does not have access to this organization');
+      throw new Error("User does not have access to this organization");
     }
 
     const membership = res.rows[0];
     if (!membership.is_active) {
-      throw new Error('Membership in this organization is deactivated');
+      throw new Error("Membership in this organization is deactivated");
     }
 
     return await issueTenantToken({

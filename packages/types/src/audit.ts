@@ -1,22 +1,22 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const AuditActorTypeSchema = z.enum([
-  'USER',
-  'SMART_RULE',
-  'AI_ACTION',
-  'SYSTEM',
+  "USER",
+  "SMART_RULE",
+  "AI_ACTION",
+  "SYSTEM",
 ]);
 
 export type AuditActorType = z.infer<typeof AuditActorTypeSchema>;
 
 export const AuditActionTypeSchema = z.enum([
-  'CREATE',
-  'UPDATE',
-  'DELETE',
-  'EXPORT',
-  'LOGIN',
-  'RULE_EXECUTE',
-  'AI_EXECUTE',
+  "CREATE",
+  "UPDATE",
+  "DELETE",
+  "EXPORT",
+  "LOGIN",
+  "RULE_EXECUTE",
+  "AI_EXECUTE",
 ]);
 
 export type AuditActionType = z.infer<typeof AuditActionTypeSchema>;

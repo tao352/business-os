@@ -1,12 +1,12 @@
-import { withTenantContext } from '@business-os/database';
-import { logger } from '@business-os/logger';
+import { withTenantContext } from "@business-os/database";
+import { logger } from "@business-os/logger";
 import {
   type TenantContext,
   type Project,
   ProjectSchema,
-} from '@business-os/types';
-import { assertPermission } from '../permissions/checker.js';
-import { recordAuditLog } from '../crm/audit-helper.js';
+} from "@business-os/types";
+import { assertPermission } from "../permissions/checker.js";
+import { recordAuditLog } from "../crm/audit-helper.js";
 
 export interface CreateProjectInput {
   name: string;
@@ -26,9 +26,9 @@ export interface UpdateProjectInput {
 
 export async function createProject(
   context: TenantContext,
-  input: CreateProjectInput
+  input: CreateProjectInput,
 ): Promise<Project> {
-  assertPermission(context, 'create', 'project');
+  assertPermission(context, "create", "project");
 
   return await withTenantContext(context.organizationId, async (client) => {
     const insertSql = `
@@ -54,19 +54,23 @@ export async function createProject(
 
     const created = res.rows[0];
     if (!created) {
-      throw new Error('Failed to create project');
+      throw new Error("Failed to create project");
     }
 
     await recordAuditLog(client, context, {
-      action: 'CREATE',
-      entityType: 'project',
+      action: "CREATE",
+      entityType: "project",
       entityId: created.id,
       afterState: created,
     });
 
     logger.info(
-      { organizationId: context.organizationId, projectId: created.id, name: created.name },
-      'Successfully created project'
+      {
+        organizationId: context.organizationId,
+        projectId: created.id,
+        name: created.name,
+      },
+      "Successfully created project",
     );
 
     return created;
@@ -75,12 +79,12 @@ export async function createProject(
 
 export async function getProject(
   context: TenantContext,
-  projectId: string
+  projectId: string,
 ): Promise<Project | null> {
   return await withTenantContext(context.organizationId, async (client) => {
     const res = await client.query<Project>(
       `SELECT * FROM projects WHERE id = $1`,
-      [projectId]
+      [projectId],
     );
     return res.rows[0] ?? null;
   });
@@ -89,7 +93,7 @@ export async function getProject(
 export async function listProjects(context: TenantContext): Promise<Project[]> {
   return await withTenantContext(context.organizationId, async (client) => {
     const res = await client.query<Project>(
-      `SELECT * FROM projects ORDER BY name ASC`
+      `SELECT * FROM projects ORDER BY name ASC`,
     );
     return res.rows;
   });
@@ -98,21 +102,21 @@ export async function listProjects(context: TenantContext): Promise<Project[]> {
 export async function updateProject(
   context: TenantContext,
   projectId: string,
-  input: UpdateProjectInput
+  input: UpdateProjectInput,
 ): Promise<Project> {
-  assertPermission(context, 'update', 'project');
+  assertPermission(context, "update", "project");
 
   return await withTenantContext(context.organizationId, async (client) => {
     const existingRes = await client.query<Project>(
       `SELECT * FROM projects WHERE id = $1`,
-      [projectId]
+      [projectId],
     );
     const existing = existingRes.rows[0];
     if (!existing) {
       throw new Error(`Project '${projectId}' not found`);
     }
 
-    const updates: string[] = ['updated_at = NOW()'];
+    const updates: string[] = ["updated_at = NOW()"];
     const params: unknown[] = [projectId];
     let idx = 2;
 
@@ -139,7 +143,7 @@ export async function updateProject(
 
     const updateSql = `
       UPDATE projects
-      SET ${updates.join(', ')}
+      SET ${updates.join(", ")}
       WHERE id = $1
       RETURNING *
     `;
@@ -147,12 +151,12 @@ export async function updateProject(
     const res = await client.query<Project>(updateSql, params);
     const updated = res.rows[0];
     if (!updated) {
-      throw new Error('Failed to update project');
+      throw new Error("Failed to update project");
     }
 
     await recordAuditLog(client, context, {
-      action: 'UPDATE',
-      entityType: 'project',
+      action: "UPDATE",
+      entityType: "project",
       entityId: projectId,
       beforeState: existing,
       afterState: updated,

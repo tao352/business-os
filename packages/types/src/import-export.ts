@@ -1,10 +1,10 @@
-import { z } from 'zod';
-import type { FilterGroup, SortConfig } from './views.js';
+import { z } from "zod";
+import type { FilterGroup, SortConfig } from "./views.js";
 
-export const ImportEntityTypeSchema = z.enum(['leads', 'units']);
+export const ImportEntityTypeSchema = z.enum(["leads", "units"]);
 export type ImportEntityType = z.infer<typeof ImportEntityTypeSchema>;
 
-export const DuplicateStrategySchema = z.enum(['SKIP', 'UPDATE']);
+export const DuplicateStrategySchema = z.enum(["SKIP", "UPDATE"]);
 export type DuplicateStrategy = z.infer<typeof DuplicateStrategySchema>;
 
 export type ColumnMapping = Record<string, string>;
@@ -37,11 +37,11 @@ export interface ImportExecutionResult {
   jobId: string;
 }
 
-export const ExportFormatSchema = z.enum(['CSV', 'TSV']);
+export const ExportFormatSchema = z.enum(["CSV", "TSV"]);
 export type ExportFormat = z.infer<typeof ExportFormatSchema>;
 
 export interface ExportOptions {
-  entityType: 'leads' | 'units' | 'deals' | 'tasks' | 'projects';
+  entityType: "leads" | "units" | "deals" | "tasks" | "projects";
   format?: ExportFormat;
   columns?: string[];
   filter_ast?: FilterGroup;

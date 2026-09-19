@@ -1,5 +1,5 @@
-import { SignJWT, jwtVerify } from 'jose';
-import type { TenantRole } from '@business-os/types';
+import { SignJWT, jwtVerify } from "jose";
+import type { TenantRole } from "@business-os/types";
 
 export interface TenantTokenPayload {
   userId: string;
@@ -8,7 +8,7 @@ export interface TenantTokenPayload {
   email: string;
 }
 
-const DEFAULT_SECRET = 'super-secret-jwt-signing-key-minimum-32-chars-for-dev';
+const DEFAULT_SECRET = "super-secret-jwt-signing-key-minimum-32-chars-for-dev";
 
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET || DEFAULT_SECRET;
@@ -20,7 +20,7 @@ function getJwtSecret(): Uint8Array {
  */
 export async function issueTenantToken(
   payload: TenantTokenPayload,
-  expiresIn: string = '7d'
+  expiresIn: string = "7d",
 ): Promise<string> {
   const secret = getJwtSecret();
 
@@ -30,11 +30,11 @@ export async function issueTenantToken(
     role: payload.role,
     email: payload.email,
   })
-    .setProtectedHeader({ alg: 'HS256' })
+    .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(expiresIn)
-    .setIssuer('business-os')
-    .setAudience('business-os-app')
+    .setIssuer("business-os")
+    .setAudience("business-os-app")
     .sign(secret);
 }
 
@@ -42,12 +42,14 @@ export async function issueTenantToken(
  * Verifies a JWT token signature and extracts the typed tenant context.
  * Throws an error if the token has expired or the cryptographic signature is invalid.
  */
-export async function verifyTenantToken(token: string): Promise<TenantTokenPayload> {
+export async function verifyTenantToken(
+  token: string,
+): Promise<TenantTokenPayload> {
   const secret = getJwtSecret();
 
   const { payload } = await jwtVerify(token, secret, {
-    issuer: 'business-os',
-    audience: 'business-os-app',
+    issuer: "business-os",
+    audience: "business-os-app",
   });
 
   return {

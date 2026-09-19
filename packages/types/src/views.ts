@@ -1,19 +1,19 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const FilterOperatorSchema = z.enum([
-  'EQUALS',
-  'NOT_EQUALS',
-  'CONTAINS',
-  'STARTS_WITH',
-  'GREATER_THAN',
-  'GREATER_THAN_OR_EQUAL',
-  'LESS_THAN',
-  'LESS_THAN_OR_EQUAL',
-  'IN',
-  'NOT_IN',
-  'IS_NULL',
-  'IS_NOT_NULL',
-  'BETWEEN',
+  "EQUALS",
+  "NOT_EQUALS",
+  "CONTAINS",
+  "STARTS_WITH",
+  "GREATER_THAN",
+  "GREATER_THAN_OR_EQUAL",
+  "LESS_THAN",
+  "LESS_THAN_OR_EQUAL",
+  "IN",
+  "NOT_IN",
+  "IS_NULL",
+  "IS_NOT_NULL",
+  "BETWEEN",
 ]);
 
 export type FilterOperator = z.infer<typeof FilterOperatorSchema>;
@@ -28,7 +28,7 @@ export const FilterConditionSchema = z.object({
 export type FilterCondition = z.infer<typeof FilterConditionSchema>;
 
 export type FilterGroup = {
-  logical: 'AND' | 'OR';
+  logical: "AND" | "OR";
   conditions: (FilterCondition | FilterGroup)[];
 };
 
@@ -36,19 +36,19 @@ export type FilterAST = FilterGroup;
 
 export const FilterGroupSchema: z.ZodType<FilterGroup> = z.lazy(() =>
   z.object({
-    logical: z.enum(['AND', 'OR']),
+    logical: z.enum(["AND", "OR"]),
     conditions: z.array(z.union([FilterConditionSchema, FilterGroupSchema])),
-  })
+  }),
 );
 
-export const SortDirectionSchema = z.enum(['asc', 'desc']);
+export const SortDirectionSchema = z.enum(["asc", "desc"]);
 export type SortDirection = z.infer<typeof SortDirectionSchema>;
 
 export const SortConfigSchema = z.object({
   field: z.string().min(1).max(64),
-  direction: SortDirectionSchema.default('asc'),
+  direction: SortDirectionSchema.default("asc"),
   is_custom: z.boolean().default(false).optional(),
-  nulls: z.enum(['first', 'last']).optional(),
+  nulls: z.enum(["first", "last"]).optional(),
 });
 
 export type SortConfig = z.infer<typeof SortConfigSchema>;
@@ -75,7 +75,7 @@ export const CreateSavedViewInputSchema = z.object({
   entity_type: z.string().min(1).max(50),
   name: z.string().min(1).max(100),
   description: z.string().optional(),
-  filter_ast: FilterGroupSchema.default({ logical: 'AND', conditions: [] }),
+  filter_ast: FilterGroupSchema.default({ logical: "AND", conditions: [] }),
   sort_config: z.array(SortConfigSchema).default([]),
   columns_config: z.array(z.string()).default([]),
   is_default: z.boolean().default(false),

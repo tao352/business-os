@@ -1,4 +1,4 @@
-import pino from 'pino';
+import pino from "pino";
 
 export interface LogContext {
   organizationId?: string;
@@ -9,21 +9,21 @@ export interface LogContext {
   [key: string]: unknown;
 }
 
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = process.env.NODE_ENV !== "production";
 
 export const baseLogger = pino({
-  level: process.env.LOG_LEVEL || (isDev ? 'debug' : 'info'),
+  level: process.env.LOG_LEVEL || (isDev ? "debug" : "info"),
   base: {
-    env: process.env.NODE_ENV || 'development',
+    env: process.env.NODE_ENV || "development",
   },
   timestamp: pino.stdTimeFunctions.isoTime,
   transport: isDev
     ? {
-        target: 'pino-pretty',
+        target: "pino-pretty",
         options: {
           colorize: true,
-          translateTime: 'HH:MM:ss Z',
-          ignore: 'pid,hostname,env',
+          translateTime: "HH:MM:ss Z",
+          ignore: "pid,hostname,env",
         },
       }
     : undefined,

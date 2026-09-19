@@ -1,13 +1,13 @@
-import { withTenantContext } from '@business-os/database';
-import { logger } from '@business-os/logger';
+import { withTenantContext } from "@business-os/database";
+import { logger } from "@business-os/logger";
 import {
   type TenantContext,
   type Unit,
   type UnitStatus,
-} from '@business-os/types';
-import { assertPermission } from '../permissions/checker.js';
-import { recordAuditLog } from '../crm/audit-helper.js';
-import { validateCustomData } from '../metadata/custom-fields-compiler.js';
+} from "@business-os/types";
+import { assertPermission } from "../permissions/checker.js";
+import { recordAuditLog } from "../crm/audit-helper.js";
+import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 
 export interface CreateUnitInput {
   projectId: string;
@@ -33,21 +33,22 @@ export interface ListUnitsFilters {
 
 export async function createUnit(
   context: TenantContext,
-  input: CreateUnitInput
+  input: CreateUnitInput,
 ): Promise<Unit> {
-  assertPermission(context, 'create', 'unit');
+  assertPermission(context, "create", "unit");
 
   return await withTenantContext(context.organizationId, async (client) => {
     // 1. Validate custom fields if any
     const defsRes = await client.query(
       `SELECT * FROM custom_field_definitions
        WHERE organization_id = $1 AND entity_type = 'unit' AND is_active = true`,
-      [context.organizationId]
+      [context.organizationId],
     );
 
-    const validatedCustomData = defsRes.rows.length > 0
-      ? validateCustomData(defsRes.rows, input.customData ?? {})
-      : (input.customData ?? {});
+    const validatedCustomData =
+      defsRes.rows.length > 0
+        ? validateCustomData(defsRes.rows, input.customData ?? {})
+        : (input.customData ?? {});
 
     // 2. Insert unit
     const insertSql = `
@@ -73,34 +74,38 @@ export async function createUnit(
       input.unitType.trim(),
       input.grossArea,
       input.price,
-      input.currency ?? 'EGP',
-      input.status ?? 'AVAILABLE',
+      input.currency ?? "EGP",
+      input.status ?? "AVAILABLE",
       JSON.stringify(input.paymentPlanTemplate ?? {}),
       JSON.stringify(validatedCustomData),
     ]);
 
     const created = res.rows[0];
     if (!created) {
-      throw new Error('Failed to create unit');
+      throw new Error("Failed to create unit");
     }
 
     // 3. Increment project total_units count
     await client.query(
       `UPDATE projects SET total_units = total_units + 1, updated_at = NOW() WHERE id = $1`,
-      [input.projectId]
+      [input.projectId],
     );
 
     // 4. Audit Log
     await recordAuditLog(client, context, {
-      action: 'CREATE',
-      entityType: 'unit',
+      action: "CREATE",
+      entityType: "unit",
       entityId: created.id,
       afterState: created,
     });
 
     logger.info(
-      { organizationId: context.organizationId, unitId: created.id, unitNumber: created.unit_number },
-      'Successfully created unit'
+      {
+        organizationId: context.organizationId,
+        unitId: created.id,
+        unitNumber: created.unit_number,
+      },
+      "Successfully created unit",
     );
 
     return created;
@@ -109,20 +114,19 @@ export async function createUnit(
 
 export async function getUnit(
   context: TenantContext,
-  unitId: string
+  unitId: string,
 ): Promise<Unit | null> {
   return await withTenantContext(context.organizationId, async (client) => {
-    const res = await client.query<Unit>(
-      `SELECT * FROM units WHERE id = $1`,
-      [unitId]
-    );
+    const res = await client.query<Unit>(`SELECT * FROM units WHERE id = $1`, [
+      unitId,
+    ]);
     return res.rows[0] ?? null;
   });
 }
 
 export async function listUnits(
   context: TenantContext,
-  filters: ListUnitsFilters = {}
+  filters: ListUnitsFilters = {},
 ): Promise<Unit[]> {
   return await withTenantContext(context.organizationId, async (client) => {
     const whereClauses: string[] = [];
@@ -150,7 +154,8 @@ export async function listUnits(
       params.push(filters.maxPrice);
     }
 
-    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const whereSql =
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
     const limit = filters.limit ?? 100;
     const offset = filters.offset ?? 0;
 
@@ -170,14 +175,14 @@ export async function listUnits(
 export async function updateUnitStatus(
   context: TenantContext,
   unitId: string,
-  newStatus: UnitStatus
+  newStatus: UnitStatus,
 ): Promise<Unit> {
-  assertPermission(context, 'update', 'unit');
+  assertPermission(context, "update", "unit");
 
   return await withTenantContext(context.organizationId, async (client) => {
     const existingRes = await client.query<Unit>(
       `SELECT * FROM units WHERE id = $1`,
-      [unitId]
+      [unitId],
     );
     const existing = existingRes.rows[0];
     if (!existing) {
@@ -194,12 +199,12 @@ export async function updateUnitStatus(
     const res = await client.query<Unit>(updateSql, [newStatus, unitId]);
     const updated = res.rows[0];
     if (!updated) {
-      throw new Error('Failed to update unit status');
+      throw new Error("Failed to update unit status");
     }
 
     await recordAuditLog(client, context, {
-      action: 'UPDATE',
-      entityType: 'unit',
+      action: "UPDATE",
+      entityType: "unit",
       entityId: unitId,
       beforeState: existing,
       afterState: updated,

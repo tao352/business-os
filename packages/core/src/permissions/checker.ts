@@ -1,12 +1,16 @@
-import type { TenantRole, TenantContext } from '@business-os/types';
-import type { Resource, Action } from './types.js';
-import { ROLE_PERMISSIONS } from './matrix.js';
-import { ForbiddenError } from './types.js';
+import type { TenantRole, TenantContext } from "@business-os/types";
+import type { Resource, Action } from "./types.js";
+import { ROLE_PERMISSIONS } from "./matrix.js";
+import { ForbiddenError } from "./types.js";
 
 /**
  * Checks whether a role has static permission to execute an action on a resource.
  */
-export function hasRolePermission(role: TenantRole, action: Action, resource: Resource): boolean {
+export function hasRolePermission(
+  role: TenantRole,
+  action: Action,
+  resource: Resource,
+): boolean {
   const resourcePermissions = ROLE_PERMISSIONS[role]?.[resource];
   if (!resourcePermissions) {
     return false;
@@ -22,7 +26,7 @@ export function can(
   context: TenantContext,
   action: Action,
   resource: Resource,
-  targetEntity?: Record<string, unknown>
+  targetEntity?: Record<string, unknown>,
 ): boolean {
   const { role, userId } = context;
 
@@ -32,10 +36,15 @@ export function can(
   }
 
   // 2. Row-level ownership constraints for SALESPERSON
-  if (role === 'SALESPERSON') {
-    if (resource === 'lead') {
+  if (role === "SALESPERSON") {
+    if (resource === "lead") {
       // Salesperson cannot execute bulk actions
-      if (action === 'read_all' || action === 'update_all' || action === 'export' || action === 'delete') {
+      if (
+        action === "read_all" ||
+        action === "update_all" ||
+        action === "export" ||
+        action === "delete"
+      ) {
         return false;
       }
       // If a specific lead record is provided, verify it is assigned to this user
@@ -44,8 +53,11 @@ export function can(
       }
     }
 
-    if (resource === 'reservation' && targetEntity) {
-      if (targetEntity.assigned_user_id && targetEntity.assigned_user_id !== userId) {
+    if (resource === "reservation" && targetEntity) {
+      if (
+        targetEntity.assigned_user_id &&
+        targetEntity.assigned_user_id !== userId
+      ) {
         return false;
       }
     }
@@ -61,7 +73,7 @@ export function assertPermission(
   context: TenantContext,
   action: Action,
   resource: Resource,
-  targetEntity?: Record<string, unknown>
+  targetEntity?: Record<string, unknown>,
 ): void {
   if (!can(context, action, resource, targetEntity)) {
     throw new ForbiddenError(context.role, action, resource);

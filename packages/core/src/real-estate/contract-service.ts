@@ -1,13 +1,13 @@
-import { withTenantContext } from '@business-os/database';
-import { logger } from '@business-os/logger';
+import { withTenantContext } from "@business-os/database";
+import { logger } from "@business-os/logger";
 import {
   type TenantContext,
   type Contract,
   type ContractStatus,
   type Installment,
-} from '@business-os/types';
-import { assertPermission } from '../permissions/checker.js';
-import { recordAuditLog } from '../crm/audit-helper.js';
+} from "@business-os/types";
+import { assertPermission } from "../permissions/checker.js";
+import { recordAuditLog } from "../crm/audit-helper.js";
 
 export interface CreateContractInput {
   reservationId?: string;
@@ -29,15 +29,15 @@ export interface ListContractsFilters {
 
 export async function createContract(
   context: TenantContext,
-  input: CreateContractInput
+  input: CreateContractInput,
 ): Promise<Contract> {
-  assertPermission(context, 'create', 'contract');
+  assertPermission(context, "create", "contract");
 
   return await withTenantContext(context.organizationId, async (client) => {
     // 1. Fetch unit details
     const unitRes = await client.query<{ id: string; unit_number: string }>(
       `SELECT id, unit_number FROM units WHERE id = $1`,
-      [input.unitId]
+      [input.unitId],
     );
     const unit = unitRes.rows[0];
     if (!unit) {
@@ -48,12 +48,12 @@ export async function createContract(
     if (input.reservationId) {
       await client.query(
         `UPDATE reservations SET status = 'CONVERTED', updated_at = NOW() WHERE id = $1`,
-        [input.reservationId]
+        [input.reservationId],
       );
     }
 
-    const status = input.status ?? 'DRAFT';
-    const isExecuted = status === 'SIGNED' || status === 'ACTIVE';
+    const status = input.status ?? "DRAFT";
+    const isExecuted = status === "SIGNED" || status === "ACTIVE";
 
     // 3. Insert Contract
     const insertSql = `
@@ -79,7 +79,7 @@ export async function createContract(
       input.unitId,
       input.contractNumber.trim(),
       input.contractValue,
-      input.currency ?? 'EGP',
+      input.currency ?? "EGP",
       JSON.stringify(input.paymentSchedule ?? []),
       input.signedAt ?? null,
       status,
@@ -87,18 +87,18 @@ export async function createContract(
 
     const created = res.rows[0];
     if (!created) {
-      throw new Error('Failed to create contract');
+      throw new Error("Failed to create contract");
     }
 
     // 4. If executed, transition unit & lead status to CONTRACTED
     if (isExecuted) {
       await client.query(
         `UPDATE units SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-        [input.unitId]
+        [input.unitId],
       );
       await client.query(
         `UPDATE leads SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-        [input.leadId]
+        [input.leadId],
       );
 
       // Append to lead timeline
@@ -109,23 +109,30 @@ export async function createContract(
           context.organizationId,
           input.leadId,
           context.userId,
-          `Contract #${input.contractNumber} executed for Unit #${unit.unit_number} (Value: ${input.contractValue} ${input.currency ?? 'EGP'})`,
-          JSON.stringify({ contractId: created.id, contractNumber: input.contractNumber }),
-        ]
+          `Contract #${input.contractNumber} executed for Unit #${unit.unit_number} (Value: ${input.contractValue} ${input.currency ?? "EGP"})`,
+          JSON.stringify({
+            contractId: created.id,
+            contractNumber: input.contractNumber,
+          }),
+        ],
       );
     }
 
     // 5. Audit Log
     await recordAuditLog(client, context, {
-      action: 'CREATE',
-      entityType: 'contract',
+      action: "CREATE",
+      entityType: "contract",
       entityId: created.id,
       afterState: created,
     });
 
     logger.info(
-      { organizationId: context.organizationId, contractId: created.id, contractNumber: created.contract_number },
-      'Successfully created contract'
+      {
+        organizationId: context.organizationId,
+        contractId: created.id,
+        contractNumber: created.contract_number,
+      },
+      "Successfully created contract",
     );
 
     return created;
@@ -135,14 +142,14 @@ export async function createContract(
 export async function signContract(
   context: TenantContext,
   contractId: string,
-  signedAt: string
+  signedAt: string,
 ): Promise<Contract> {
-  assertPermission(context, 'update', 'contract');
+  assertPermission(context, "update", "contract");
 
   return await withTenantContext(context.organizationId, async (client) => {
     const existingRes = await client.query<Contract>(
       `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
-      [contractId]
+      [contractId],
     );
     const existing = existingRes.rows[0];
     if (!existing) {
@@ -155,20 +162,20 @@ export async function signContract(
        SET status = 'SIGNED', signed_at = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING *`,
-      [signedAt, contractId]
+      [signedAt, contractId],
     );
     const updated = updateRes.rows[0]!;
 
     // 2. Lock unit to CONTRACTED
     await client.query(
       `UPDATE units SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-      [existing.unit_id]
+      [existing.unit_id],
     );
 
     // 3. Update lead to CONTRACTED
     await client.query(
       `UPDATE leads SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-      [existing.lead_id]
+      [existing.lead_id],
     );
 
     // 4. Log activity on timeline
@@ -181,12 +188,12 @@ export async function signContract(
         context.userId,
         `Contract #${existing.contract_number} signed officially!`,
         JSON.stringify({ contractId, signedAt }),
-      ]
+      ],
     );
 
     await recordAuditLog(client, context, {
-      action: 'UPDATE',
-      entityType: 'contract',
+      action: "UPDATE",
+      entityType: "contract",
       entityId: contractId,
       beforeState: existing,
       afterState: updated,
@@ -198,7 +205,7 @@ export async function signContract(
 
 export async function listContracts(
   context: TenantContext,
-  filters: ListContractsFilters = {}
+  filters: ListContractsFilters = {},
 ): Promise<Contract[]> {
   return await withTenantContext(context.organizationId, async (client) => {
     const whereClauses: string[] = [];
@@ -218,7 +225,8 @@ export async function listContracts(
       params.push(filters.status);
     }
 
-    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const whereSql =
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
     const querySql = `
       SELECT * FROM contracts
       ${whereSql}

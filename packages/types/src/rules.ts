@@ -1,25 +1,25 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const TriggerTypeSchema = z.enum([
-  'lead.created',
-  'lead.status_changed',
-  'lead.inactivity_exceeded',
-  'task.due',
-  'visit.scheduled',
-  'reservation.created',
-  'reservation.expiring',
+  "lead.created",
+  "lead.status_changed",
+  "lead.inactivity_exceeded",
+  "task.due",
+  "visit.scheduled",
+  "reservation.created",
+  "reservation.expiring",
 ]);
 
 export type TriggerType = z.infer<typeof TriggerTypeSchema>;
 
 export const ConditionOperatorSchema = z.enum([
-  'equals',
-  'not_equals',
-  'greater_than',
-  'less_than',
-  'contains',
-  'is_empty',
-  'is_not_empty',
+  "equals",
+  "not_equals",
+  "greater_than",
+  "less_than",
+  "contains",
+  "is_empty",
+  "is_not_empty",
 ]);
 
 export type ConditionOperator = z.infer<typeof ConditionOperatorSchema>;
@@ -33,12 +33,12 @@ export const RuleConditionSchema = z.object({
 export type RuleCondition = z.infer<typeof RuleConditionSchema>;
 
 export const ActionTypeSchema = z.enum([
-  'lead.assign_round_robin',
-  'lead.assign_specific_user',
-  'lead.change_status',
-  'task.create',
-  'notification.internal',
-  'whatsapp.send_template',
+  "lead.assign_round_robin",
+  "lead.assign_specific_user",
+  "lead.change_status",
+  "task.create",
+  "notification.internal",
+  "whatsapp.send_template",
 ]);
 
 export type ActionType = z.infer<typeof ActionTypeSchema>;

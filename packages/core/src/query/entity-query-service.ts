@@ -1,30 +1,30 @@
-import { withTenantContext } from '@business-os/database';
-import { logger } from '@business-os/logger';
+import { withTenantContext } from "@business-os/database";
+import { logger } from "@business-os/logger";
 import type {
   TenantContext,
   EntityQueryOptions,
   EntityQueryResult,
   FilterCondition,
   FilterGroup,
-} from '@business-os/types';
+} from "@business-os/types";
 import {
   compileFilterGroup,
   compileSearchToSql,
   compileSortToSql,
   ENTITY_COLUMN_WHITELISTS,
-} from './filter-compiler.js';
+} from "./filter-compiler.js";
 
 export class UnsupportedEntityError extends Error {
   constructor(public readonly entityType: string) {
     super(`Entity type '${entityType}' is not supported for dynamic querying`);
-    this.name = 'UnsupportedEntityError';
+    this.name = "UnsupportedEntityError";
   }
 }
 
 export async function queryEntities<T extends Record<string, any>>(
   context: TenantContext,
   entityType: string,
-  options: EntityQueryOptions = { limit: 50, offset: 0 }
+  options: EntityQueryOptions = { limit: 50, offset: 0 },
 ): Promise<EntityQueryResult<T>> {
   if (!ENTITY_COLUMN_WHITELISTS[entityType]) {
     throw new UnsupportedEntityError(entityType);
@@ -37,10 +37,10 @@ export async function queryEntities<T extends Record<string, any>>(
   const conditions: (FilterCondition | FilterGroup)[] = [];
 
   // Enforce Salesperson row-level isolation for leads
-  if (entityType === 'leads' && context.role === 'SALESPERSON') {
+  if (entityType === "leads" && context.role === "SALESPERSON") {
     conditions.push({
-      field: 'assigned_user_id',
-      operator: 'EQUALS',
+      field: "assigned_user_id",
+      operator: "EQUALS",
       value: context.userId,
     });
   }
@@ -51,7 +51,7 @@ export async function queryEntities<T extends Record<string, any>>(
   }
 
   const rootFilterGroup: FilterGroup = {
-    logical: 'AND',
+    logical: "AND",
     conditions,
   };
 
@@ -60,14 +60,27 @@ export async function queryEntities<T extends Record<string, any>>(
     let paramIndex = 1;
 
     // 1. Compile Filters
-    const filterRes = compileFilterGroup(entityType, rootFilterGroup, paramIndex, params);
+    const filterRes = compileFilterGroup(
+      entityType,
+      rootFilterGroup,
+      paramIndex,
+      params,
+    );
     let whereSql = filterRes.sql;
     paramIndex = filterRes.nextIndex;
 
     // 2. Compile Search (if provided)
     if (options.search && options.search.trim().length > 0) {
-      const searchRes = compileSearchToSql(entityType, options.search, paramIndex, params);
-      whereSql = whereSql === 'TRUE' ? searchRes.sql : `(${whereSql}) AND (${searchRes.sql})`;
+      const searchRes = compileSearchToSql(
+        entityType,
+        options.search,
+        paramIndex,
+        params,
+      );
+      whereSql =
+        whereSql === "TRUE"
+          ? searchRes.sql
+          : `(${whereSql}) AND (${searchRes.sql})`;
       paramIndex = searchRes.nextIndex;
     }
 
@@ -99,7 +112,7 @@ export async function queryEntities<T extends Record<string, any>>(
         total,
         returned: data.length,
       },
-      'Entity query executed successfully'
+      "Entity query executed successfully",
     );
 
     return {

@@ -1,8 +1,8 @@
-import { withTenantContext } from '@business-os/database';
-import type { TenantContext, LeadStatus } from '@business-os/types';
-import { assertPermission, can } from '../permissions/checker.js';
-import { recordAuditLog } from './audit-helper.js';
-import { validateCustomData } from '../metadata/custom-fields-compiler.js';
+import { withTenantContext } from "@business-os/database";
+import type { TenantContext, LeadStatus } from "@business-os/types";
+import { assertPermission, can } from "../permissions/checker.js";
+import { recordAuditLog } from "./audit-helper.js";
+import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 
 export interface CreateLeadInput {
   fullName: string;
@@ -27,23 +27,27 @@ export interface ListLeadsFilters {
 /**
  * Creates a new lead with custom field validation, audit logging and an initial activity note.
  */
-export async function createLead(context: TenantContext, input: CreateLeadInput) {
-  assertPermission(context, 'create', 'lead');
+export async function createLead(
+  context: TenantContext,
+  input: CreateLeadInput,
+) {
+  assertPermission(context, "create", "lead");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const status: LeadStatus = input.status || 'NEW';
-    const source = input.source || 'MANUAL';
+    const status: LeadStatus = input.status || "NEW";
+    const source = input.source || "MANUAL";
 
     // 1. Fetch active custom field definitions and validate payload
     const defsRes = await tx.query(
       `SELECT * FROM custom_field_definitions
        WHERE organization_id = $1 AND entity_type = 'lead' AND is_active = true`,
-      [context.organizationId]
+      [context.organizationId],
     );
 
-    const validatedCustomData = defsRes.rows.length > 0
-      ? validateCustomData(defsRes.rows, input.customData || {})
-      : (input.customData || {});
+    const validatedCustomData =
+      defsRes.rows.length > 0
+        ? validateCustomData(defsRes.rows, input.customData || {})
+        : input.customData || {};
 
     const res = await tx.query(
       `INSERT INTO leads (
@@ -61,15 +65,15 @@ export async function createLead(context: TenantContext, input: CreateLeadInput)
         input.campaignId || null,
         source,
         JSON.stringify(validatedCustomData),
-      ]
+      ],
     );
 
     const lead = res.rows[0];
 
     // 1. Immutable Audit Log
     await recordAuditLog(tx, context, {
-      action: 'CREATE',
-      entityType: 'lead',
+      action: "CREATE",
+      entityType: "lead",
       entityId: lead.id,
       afterState: lead,
     });
@@ -85,7 +89,7 @@ export async function createLead(context: TenantContext, input: CreateLeadInput)
         context.userId,
         `Lead created via ${source}`,
         JSON.stringify({ source, campaignId: input.campaignId }),
-      ]
+      ],
     );
 
     return lead;
@@ -97,13 +101,13 @@ export async function createLead(context: TenantContext, input: CreateLeadInput)
  */
 export async function getLead(context: TenantContext, leadId: string) {
   return await withTenantContext(context.organizationId, async (tx) => {
-    const res = await tx.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    const res = await tx.query("SELECT * FROM leads WHERE id = $1", [leadId]);
     if (res.rows.length === 0) {
-      throw new Error('Lead not found');
+      throw new Error("Lead not found");
     }
 
     const lead = res.rows[0];
-    assertPermission(context, 'read', 'lead', lead);
+    assertPermission(context, "read", "lead", lead);
 
     return lead;
   });
@@ -112,16 +116,19 @@ export async function getLead(context: TenantContext, leadId: string) {
 /**
  * Lists leads with filtering, pagination, and role-based assignment constraints.
  */
-export async function listLeads(context: TenantContext, filters: ListLeadsFilters = {}) {
-  assertPermission(context, 'read', 'lead');
+export async function listLeads(
+  context: TenantContext,
+  filters: ListLeadsFilters = {},
+) {
+  assertPermission(context, "read", "lead");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const conditions: string[] = ['1 = 1'];
+    const conditions: string[] = ["1 = 1"];
     const params: unknown[] = [];
     let paramIdx = 1;
 
     // Enforce SALESPERSON assignment constraint
-    if (context.role === 'SALESPERSON') {
+    if (context.role === "SALESPERSON") {
       conditions.push(`assigned_user_id = $${paramIdx++}`);
       params.push(context.userId);
     } else if (filters.assignedUserId) {
@@ -141,7 +148,7 @@ export async function listLeads(context: TenantContext, filters: ListLeadsFilter
 
     if (filters.search) {
       conditions.push(
-        `(full_name ILIKE $${paramIdx} OR phone ILIKE $${paramIdx} OR email ILIKE $${paramIdx})`
+        `(full_name ILIKE $${paramIdx} OR phone ILIKE $${paramIdx} OR email ILIKE $${paramIdx})`,
       );
       params.push(`%${filters.search}%`);
       paramIdx++;
@@ -152,7 +159,7 @@ export async function listLeads(context: TenantContext, filters: ListLeadsFilter
 
     const query = `
       SELECT * FROM leads
-      WHERE ${conditions.join(' AND ')}
+      WHERE ${conditions.join(" AND ")}
       ORDER BY created_at DESC
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `;
@@ -169,16 +176,18 @@ export async function listLeads(context: TenantContext, filters: ListLeadsFilter
 export async function updateLeadStatus(
   context: TenantContext,
   leadId: string,
-  newStatus: LeadStatus
+  newStatus: LeadStatus,
 ) {
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    const existing = await tx.query("SELECT * FROM leads WHERE id = $1", [
+      leadId,
+    ]);
     if (existing.rows.length === 0) {
-      throw new Error('Lead not found');
+      throw new Error("Lead not found");
     }
 
     const lead = existing.rows[0];
-    assertPermission(context, 'update', 'lead', lead);
+    assertPermission(context, "update", "lead", lead);
 
     const oldStatus = lead.status;
     if (oldStatus === newStatus) {
@@ -190,14 +199,14 @@ export async function updateLeadStatus(
        SET status = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING *`,
-      [newStatus, leadId]
+      [newStatus, leadId],
     );
     const updatedLead = res.rows[0];
 
     // 1. Audit Log
     await recordAuditLog(tx, context, {
-      action: 'UPDATE',
-      entityType: 'lead',
+      action: "UPDATE",
+      entityType: "lead",
       entityId: leadId,
       beforeState: { status: oldStatus },
       afterState: { status: newStatus },
@@ -214,7 +223,7 @@ export async function updateLeadStatus(
         context.userId,
         `Status changed from ${oldStatus} to ${newStatus}`,
         JSON.stringify({ oldStatus, newStatus }),
-      ]
+      ],
     );
 
     return updatedLead;
@@ -227,35 +236,40 @@ export async function updateLeadStatus(
 export async function assignLead(
   context: TenantContext,
   leadId: string,
-  targetUserId: string
+  targetUserId: string,
 ) {
-  assertPermission(context, 'update_all', 'lead');
+  assertPermission(context, "update_all", "lead");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    const existing = await tx.query("SELECT * FROM leads WHERE id = $1", [
+      leadId,
+    ]);
     if (existing.rows.length === 0) {
-      throw new Error('Lead not found');
+      throw new Error("Lead not found");
     }
     const lead = existing.rows[0];
     const previousAssignee = lead.assigned_user_id;
 
     // Fetch target user name for timeline activity
-    const targetUserRes = await tx.query('SELECT full_name FROM users WHERE id = $1', [targetUserId]);
-    const targetUserName = targetUserRes.rows[0]?.full_name || 'Agent';
+    const targetUserRes = await tx.query(
+      "SELECT full_name FROM users WHERE id = $1",
+      [targetUserId],
+    );
+    const targetUserName = targetUserRes.rows[0]?.full_name || "Agent";
 
     const res = await tx.query(
       `UPDATE leads
        SET assigned_user_id = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING *`,
-      [targetUserId, leadId]
+      [targetUserId, leadId],
     );
     const updated = res.rows[0];
 
     // 1. Audit Log
     await recordAuditLog(tx, context, {
-      action: 'UPDATE',
-      entityType: 'lead',
+      action: "UPDATE",
+      entityType: "lead",
       entityId: leadId,
       beforeState: { assigned_user_id: previousAssignee },
       afterState: { assigned_user_id: targetUserId },
@@ -272,7 +286,7 @@ export async function assignLead(
         context.userId,
         `Lead reassigned to ${targetUserName}`,
         JSON.stringify({ previousAssignee, targetUserId }),
-      ]
+      ],
     );
 
     return updated;
@@ -292,46 +306,65 @@ export interface UpdateLeadInput {
 export async function updateLead(
   context: TenantContext,
   leadId: string,
-  input: UpdateLeadInput
+  input: UpdateLeadInput,
 ) {
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    const existing = await tx.query("SELECT * FROM leads WHERE id = $1", [
+      leadId,
+    ]);
     if (existing.rows.length === 0) {
-      throw new Error('Lead not found');
+      throw new Error("Lead not found");
     }
     const currentLead = existing.rows[0];
-    assertPermission(context, 'update', 'lead', currentLead);
+    assertPermission(context, "update", "lead", currentLead);
 
     let updatedCustomData = currentLead.custom_data;
     if (input.customData) {
       const defsRes = await tx.query(
         `SELECT * FROM custom_field_definitions
          WHERE organization_id = $1 AND entity_type = 'lead' AND is_active = true`,
-        [context.organizationId]
+        [context.organizationId],
       );
-      const mergedCustomData = { ...currentLead.custom_data, ...input.customData };
-      updatedCustomData = defsRes.rows.length > 0
-        ? validateCustomData(defsRes.rows, mergedCustomData)
-        : mergedCustomData;
+      const mergedCustomData = {
+        ...currentLead.custom_data,
+        ...input.customData,
+      };
+      updatedCustomData =
+        defsRes.rows.length > 0
+          ? validateCustomData(defsRes.rows, mergedCustomData)
+          : mergedCustomData;
     }
 
-    const updatedFullName = input.fullName !== undefined ? input.fullName.trim() : currentLead.full_name;
-    const updatedPhone = input.phone !== undefined ? input.phone.trim() : currentLead.phone;
-    const updatedEmail = input.email !== undefined ? input.email?.trim() || null : currentLead.email;
+    const updatedFullName =
+      input.fullName !== undefined
+        ? input.fullName.trim()
+        : currentLead.full_name;
+    const updatedPhone =
+      input.phone !== undefined ? input.phone.trim() : currentLead.phone;
+    const updatedEmail =
+      input.email !== undefined
+        ? input.email?.trim() || null
+        : currentLead.email;
 
     const res = await tx.query(
       `UPDATE leads
        SET full_name = $1, phone = $2, email = $3, custom_data = $4, updated_at = NOW()
        WHERE id = $5
        RETURNING *`,
-      [updatedFullName, updatedPhone, updatedEmail, JSON.stringify(updatedCustomData), leadId]
+      [
+        updatedFullName,
+        updatedPhone,
+        updatedEmail,
+        JSON.stringify(updatedCustomData),
+        leadId,
+      ],
     );
 
     const updated = res.rows[0];
 
     await recordAuditLog(tx, context, {
-      action: 'UPDATE',
-      entityType: 'lead',
+      action: "UPDATE",
+      entityType: "lead",
       entityId: leadId,
       beforeState: currentLead,
       afterState: updated,
@@ -345,20 +378,22 @@ export async function updateLead(
  * Deletes a lead. Strictly requires 'delete' permission (Admin/Owner only).
  */
 export async function deleteLead(context: TenantContext, leadId: string) {
-  assertPermission(context, 'delete', 'lead');
+  assertPermission(context, "delete", "lead");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    const existing = await tx.query("SELECT * FROM leads WHERE id = $1", [
+      leadId,
+    ]);
     if (existing.rows.length === 0) {
-      throw new Error('Lead not found');
+      throw new Error("Lead not found");
     }
     const lead = existing.rows[0];
 
-    await tx.query('DELETE FROM leads WHERE id = $1', [leadId]);
+    await tx.query("DELETE FROM leads WHERE id = $1", [leadId]);
 
     await recordAuditLog(tx, context, {
-      action: 'DELETE',
-      entityType: 'lead',
+      action: "DELETE",
+      entityType: "lead",
       entityId: leadId,
       beforeState: lead,
     });

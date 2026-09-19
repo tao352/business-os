@@ -1,7 +1,14 @@
-import type { TenantContext, AuditActionType, AuditActorType } from '@business-os/types';
+import type {
+  TenantContext,
+  AuditActionType,
+  AuditActorType,
+} from "@business-os/types";
 
 export interface TransactionClient {
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
+  query: (
+    sql: string,
+    params?: unknown[],
+  ) => Promise<{ rows: any[]; rowCount?: number | null }>;
 }
 
 export interface RecordAuditLogInput {
@@ -19,7 +26,7 @@ export interface RecordAuditLogInput {
 export async function recordAuditLog(
   client: TransactionClient,
   context: TenantContext,
-  input: RecordAuditLogInput
+  input: RecordAuditLogInput,
 ) {
   await client.query(
     `INSERT INTO audit_logs (
@@ -29,12 +36,12 @@ export async function recordAuditLog(
     [
       context.organizationId,
       context.userId,
-      input.actorType || 'USER',
+      input.actorType || "USER",
       input.action,
       input.entityType,
       input.entityId,
       input.beforeState ? JSON.stringify(input.beforeState) : null,
       input.afterState ? JSON.stringify(input.afterState) : null,
-    ]
+    ],
   );
 }

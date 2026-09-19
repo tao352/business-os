@@ -3,7 +3,7 @@ export interface ParsedCsvResult {
   rows: Record<string, string>[];
 }
 
-export function parseCsv(rawContent: string, delimiter = ','): ParsedCsvResult {
+export function parseCsv(rawContent: string, delimiter = ","): ParsedCsvResult {
   if (!rawContent || rawContent.trim().length === 0) {
     return { headers: [], rows: [] };
   }
@@ -16,7 +16,7 @@ export function parseCsv(rawContent: string, delimiter = ','): ParsedCsvResult {
 
   const rawRows: string[][] = [];
   let currentRow: string[] = [];
-  let currentField = '';
+  let currentField = "";
   let insideQuotes = false;
 
   for (let i = 0; i < content.length; i++) {
@@ -41,9 +41,9 @@ export function parseCsv(rawContent: string, delimiter = ','): ParsedCsvResult {
         insideQuotes = true;
       } else if (char === delimiter) {
         currentRow.push(currentField.trim());
-        currentField = '';
-      } else if (char === '\r') {
-        if (nextChar === '\n') {
+        currentField = "";
+      } else if (char === "\r") {
+        if (nextChar === "\n") {
           i++; // skip LF after CR
         }
         currentRow.push(currentField.trim());
@@ -51,14 +51,14 @@ export function parseCsv(rawContent: string, delimiter = ','): ParsedCsvResult {
           rawRows.push(currentRow);
         }
         currentRow = [];
-        currentField = '';
-      } else if (char === '\n') {
+        currentField = "";
+      } else if (char === "\n") {
         currentRow.push(currentField.trim());
         if (currentRow.some((f) => f.length > 0)) {
           rawRows.push(currentRow);
         }
         currentRow = [];
-        currentField = '';
+        currentField = "";
       } else {
         currentField += char;
       }
@@ -84,7 +84,7 @@ export function parseCsv(rawContent: string, delimiter = ','): ParsedCsvResult {
     for (let c = 0; c < headers.length; c++) {
       const header = headers[c];
       if (header) {
-        rowObj[header] = rowData[c] ?? '';
+        rowObj[header] = rowData[c] ?? "";
       }
     }
     rows.push(rowObj);
@@ -93,13 +93,13 @@ export function parseCsv(rawContent: string, delimiter = ','): ParsedCsvResult {
   return { headers, rows };
 }
 
-export function escapeCsvField(val: unknown, delimiter = ','): string {
+export function escapeCsvField(val: unknown, delimiter = ","): string {
   if (val === null || val === undefined) {
-    return '';
+    return "";
   }
 
   let str: string;
-  if (typeof val === 'object') {
+  if (typeof val === "object") {
     str = JSON.stringify(val);
   } else {
     str = String(val);
@@ -108,8 +108,8 @@ export function escapeCsvField(val: unknown, delimiter = ','): string {
   const needsQuotes =
     str.includes(delimiter) ||
     str.includes('"') ||
-    str.includes('\n') ||
-    str.includes('\r');
+    str.includes("\n") ||
+    str.includes("\r");
 
   if (needsQuotes) {
     return `"${str.replace(/"/g, '""')}"`;
@@ -121,9 +121,9 @@ export function escapeCsvField(val: unknown, delimiter = ','): string {
 export function generateCsv(
   headers: string[],
   rows: Record<string, unknown>[],
-  options: { delimiter?: string; includeBom?: boolean } = {}
+  options: { delimiter?: string; includeBom?: boolean } = {},
 ): string {
-  const delimiter = options.delimiter ?? ',';
+  const delimiter = options.delimiter ?? ",";
   const includeBom = options.includeBom ?? true;
 
   const lines: string[] = [];
@@ -133,10 +133,12 @@ export function generateCsv(
 
   // Data rows
   for (const row of rows) {
-    const line = headers.map((h) => escapeCsvField(row[h], delimiter)).join(delimiter);
+    const line = headers
+      .map((h) => escapeCsvField(row[h], delimiter))
+      .join(delimiter);
     lines.push(line);
   }
 
-  const csvBody = lines.join('\r\n');
+  const csvBody = lines.join("\r\n");
   return includeBom ? `\uFEFF${csvBody}` : csvBody;
 }

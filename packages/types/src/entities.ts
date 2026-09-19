@@ -1,15 +1,15 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const LeadStatusSchema = z.enum([
-  'NEW',
-  'CONTACTED',
-  'QUALIFIED',
-  'MEETING_SCHEDULED',
-  'SITE_VISIT_BOOKED',
-  'RESERVED',
-  'CONTRACTED',
-  'UNQUALIFIED',
-  'LOST',
+  "NEW",
+  "CONTACTED",
+  "QUALIFIED",
+  "MEETING_SCHEDULED",
+  "SITE_VISIT_BOOKED",
+  "RESERVED",
+  "CONTRACTED",
+  "UNQUALIFIED",
+  "LOST",
 ]);
 
 export type LeadStatus = z.infer<typeof LeadStatusSchema>;
@@ -20,10 +20,10 @@ export const LeadSchema = z.object({
   full_name: z.string().min(2).max(150),
   phone: z.string().min(5).max(30),
   email: z.string().email().nullable().optional(),
-  status: LeadStatusSchema.default('NEW'),
+  status: LeadStatusSchema.default("NEW"),
   assigned_user_id: z.string().uuid().nullable().optional(),
   campaign_id: z.string().nullable().optional(),
-  source: z.string().default('MANUAL'),
+  source: z.string().default("MANUAL"),
   custom_data: z.record(z.unknown()).default({}),
   last_contacted_at: z.string().datetime().nullable().optional(),
   created_at: z.string().datetime(),
@@ -47,10 +47,10 @@ export const ProjectSchema = z.object({
 export type Project = z.infer<typeof ProjectSchema>;
 
 export const UnitStatusSchema = z.enum([
-  'AVAILABLE',
-  'RESERVED',
-  'CONTRACTED',
-  'BLOCKED',
+  "AVAILABLE",
+  "RESERVED",
+  "CONTRACTED",
+  "BLOCKED",
 ]);
 
 export type UnitStatus = z.infer<typeof UnitStatusSchema>;
@@ -63,8 +63,8 @@ export const UnitSchema = z.object({
   unit_type: z.string().min(2).max(50), // e.g. Apartment, Villa, Duplex, Retail, Penthouse
   gross_area: z.number().positive(),
   price: z.number().positive(),
-  currency: z.string().default('EGP'),
-  status: UnitStatusSchema.default('AVAILABLE'),
+  currency: z.string().default("EGP"),
+  status: UnitStatusSchema.default("AVAILABLE"),
   payment_plan_template: z.record(z.unknown()).default({}),
   custom_data: z.record(z.unknown()).default({}),
   created_at: z.string().datetime(),
@@ -74,19 +74,19 @@ export const UnitSchema = z.object({
 export type Unit = z.infer<typeof UnitSchema>;
 
 export const PaymentFrequencySchema = z.enum([
-  'MONTHLY',
-  'QUARTERLY',
-  'SEMI_ANNUAL',
-  'ANNUAL',
+  "MONTHLY",
+  "QUARTERLY",
+  "SEMI_ANNUAL",
+  "ANNUAL",
 ]);
 
 export type PaymentFrequency = z.infer<typeof PaymentFrequencySchema>;
 
 export const InstallmentTypeSchema = z.enum([
-  'DOWN_PAYMENT',
-  'INSTALLMENT',
-  'DELIVERY',
-  'MAINTENANCE',
+  "DOWN_PAYMENT",
+  "INSTALLMENT",
+  "DELIVERY",
+  "MAINTENANCE",
 ]);
 
 export type InstallmentType = z.infer<typeof InstallmentTypeSchema>;
@@ -125,10 +125,10 @@ export interface PaymentScheduleResult {
 }
 
 export const VisitStatusSchema = z.enum([
-  'SCHEDULED',
-  'COMPLETED',
-  'CANCELLED',
-  'NO_SHOW',
+  "SCHEDULED",
+  "COMPLETED",
+  "CANCELLED",
+  "NO_SHOW",
 ]);
 
 export type VisitStatus = z.infer<typeof VisitStatusSchema>;
@@ -141,7 +141,7 @@ export const VisitSchema = z.object({
   scheduled_by_user_id: z.string().uuid(),
   assigned_agent_id: z.string().uuid().nullable().optional(),
   scheduled_at: z.string().datetime(),
-  status: VisitStatusSchema.default('SCHEDULED'),
+  status: VisitStatusSchema.default("SCHEDULED"),
   notes: z.string().nullable().optional(),
   feedback: z.string().nullable().optional(),
   created_at: z.string().datetime(),
@@ -151,11 +151,11 @@ export const VisitSchema = z.object({
 export type Visit = z.infer<typeof VisitSchema>;
 
 export const ReservationStatusSchema = z.enum([
-  'PENDING',
-  'CONFIRMED',
-  'CANCELLED',
-  'EXPIRED',
-  'CONVERTED',
+  "PENDING",
+  "CONFIRMED",
+  "CANCELLED",
+  "EXPIRED",
+  "CONVERTED",
 ]);
 
 export type ReservationStatus = z.infer<typeof ReservationStatusSchema>;
@@ -167,8 +167,8 @@ export const ReservationSchema = z.object({
   unit_id: z.string().uuid(),
   reserved_by_user_id: z.string().uuid(),
   deposit_amount: z.number().nonnegative(),
-  currency: z.string().default('EGP'),
-  status: ReservationStatusSchema.default('CONFIRMED'),
+  currency: z.string().default("EGP"),
+  status: ReservationStatusSchema.default("CONFIRMED"),
   expires_at: z.string().datetime(),
   payment_method: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
@@ -179,11 +179,11 @@ export const ReservationSchema = z.object({
 export type Reservation = z.infer<typeof ReservationSchema>;
 
 export const ContractStatusSchema = z.enum([
-  'DRAFT',
-  'SIGNED',
-  'ACTIVE',
-  'TERMINATED',
-  'COMPLETED',
+  "DRAFT",
+  "SIGNED",
+  "ACTIVE",
+  "TERMINATED",
+  "COMPLETED",
 ]);
 
 export type ContractStatus = z.infer<typeof ContractStatusSchema>;
@@ -196,10 +196,10 @@ export const ContractSchema = z.object({
   unit_id: z.string().uuid(),
   contract_number: z.string().min(2).max(100),
   contract_value: z.number().positive(),
-  currency: z.string().default('EGP'),
+  currency: z.string().default("EGP"),
   payment_schedule: z.array(InstallmentSchema).default([]),
   signed_at: z.string().datetime().nullable().optional(),
-  status: ContractStatusSchema.default('DRAFT'),
+  status: ContractStatusSchema.default("DRAFT"),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });

@@ -1,14 +1,10 @@
-import { withTenantContext } from '@business-os/database';
-import type { TenantContext } from '@business-os/types';
-import { assertPermission } from '../permissions/checker.js';
-import { recordAuditLog } from './audit-helper.js';
+import { withTenantContext } from "@business-os/database";
+import type { TenantContext } from "@business-os/types";
+import { assertPermission } from "../permissions/checker.js";
+import { recordAuditLog } from "./audit-helper.js";
 
 export type DealStage =
-  | 'DISCOVERY'
-  | 'PROPOSAL'
-  | 'NEGOTIATION'
-  | 'WON'
-  | 'LOST';
+  "DISCOVERY" | "PROPOSAL" | "NEGOTIATION" | "WON" | "LOST";
 
 export interface CreateDealInput {
   leadId: string;
@@ -24,11 +20,14 @@ export interface CreateDealInput {
 /**
  * Creates a commercial opportunity / deal attached to a lead.
  */
-export async function createDeal(context: TenantContext, input: CreateDealInput) {
-  assertPermission(context, 'create', 'contract');
+export async function createDeal(
+  context: TenantContext,
+  input: CreateDealInput,
+) {
+  assertPermission(context, "create", "contract");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const stage: DealStage = input.stage || 'DISCOVERY';
+    const stage: DealStage = input.stage || "DISCOVERY";
 
     const res = await tx.query(
       `INSERT INTO deals (
@@ -41,19 +40,19 @@ export async function createDeal(context: TenantContext, input: CreateDealInput)
         input.leadId,
         input.title.trim(),
         input.value,
-        input.currency || 'USD',
+        input.currency || "USD",
         stage,
         input.expectedCloseDate || null,
         input.assignedUserId || context.userId,
         JSON.stringify(input.customData || {}),
-      ]
+      ],
     );
 
     const deal = res.rows[0];
 
     await recordAuditLog(tx, context, {
-      action: 'CREATE',
-      entityType: 'deal',
+      action: "CREATE",
+      entityType: "deal",
       entityId: deal.id,
       afterState: deal,
     });
@@ -69,7 +68,7 @@ export async function createDeal(context: TenantContext, input: CreateDealInput)
         context.userId,
         `Deal created: ${deal.title} (${deal.value} ${deal.currency})`,
         JSON.stringify({ dealId: deal.id, value: deal.value, stage }),
-      ]
+      ],
     );
 
     return deal;
@@ -82,14 +81,16 @@ export async function createDeal(context: TenantContext, input: CreateDealInput)
 export async function updateDealStage(
   context: TenantContext,
   dealId: string,
-  newStage: DealStage
+  newStage: DealStage,
 ) {
-  assertPermission(context, 'update', 'contract');
+  assertPermission(context, "update", "contract");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query('SELECT * FROM deals WHERE id = $1', [dealId]);
+    const existing = await tx.query("SELECT * FROM deals WHERE id = $1", [
+      dealId,
+    ]);
     if (existing.rows.length === 0) {
-      throw new Error('Deal not found');
+      throw new Error("Deal not found");
     }
     const deal = existing.rows[0];
     const oldStage = deal.stage;
@@ -103,13 +104,13 @@ export async function updateDealStage(
        SET stage = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING *`,
-      [newStage, dealId]
+      [newStage, dealId],
     );
     const updatedDeal = res.rows[0];
 
     await recordAuditLog(tx, context, {
-      action: 'UPDATE',
-      entityType: 'deal',
+      action: "UPDATE",
+      entityType: "deal",
       entityId: dealId,
       beforeState: { stage: oldStage },
       afterState: { stage: newStage },
@@ -126,7 +127,7 @@ export async function updateDealStage(
         context.userId,
         `Deal "${deal.title}" stage changed from ${oldStage} to ${newStage}`,
         JSON.stringify({ dealId, oldStage, newStage }),
-      ]
+      ],
     );
 
     return updatedDeal;
@@ -136,11 +137,14 @@ export async function updateDealStage(
 /**
  * Lists deals with optional stage or assignee filters.
  */
-export async function listDeals(context: TenantContext, filters: { stage?: DealStage } = {}) {
-  assertPermission(context, 'read', 'contract');
+export async function listDeals(
+  context: TenantContext,
+  filters: { stage?: DealStage } = {},
+) {
+  assertPermission(context, "read", "contract");
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const conditions: string[] = ['1 = 1'];
+    const conditions: string[] = ["1 = 1"];
     const params: unknown[] = [];
     let paramIdx = 1;
 
@@ -154,7 +158,7 @@ export async function listDeals(context: TenantContext, filters: { stage?: DealS
       FROM deals d
       JOIN leads l ON l.id = d.lead_id
       LEFT JOIN users u ON u.id = d.assigned_user_id
-      WHERE ${conditions.join(' AND ')}
+      WHERE ${conditions.join(" AND ")}
       ORDER BY d.created_at DESC
     `;
 

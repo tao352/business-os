@@ -1,12 +1,12 @@
-import { z } from 'zod';
-import type { CustomFieldDefinition } from '@business-os/types';
+import { z } from "zod";
+import type { CustomFieldDefinition } from "@business-os/types";
 
 export class CustomFieldValidationError extends Error {
   public readonly errors: Record<string, string>;
 
   constructor(errors: Record<string, string>) {
     super(`Custom field validation failed: ${JSON.stringify(errors)}`);
-    this.name = 'CustomFieldValidationError';
+    this.name = "CustomFieldValidationError";
     this.errors = errors;
   }
 }
@@ -14,13 +14,15 @@ export class CustomFieldValidationError extends Error {
 /**
  * Compiles a single custom field definition into a dynamic Zod validator.
  */
-export function compileCustomFieldZodType(definition: CustomFieldDefinition): z.ZodTypeAny {
+export function compileCustomFieldZodType(
+  definition: CustomFieldDefinition,
+): z.ZodTypeAny {
   const { field_type, validation_rules, is_required } = definition;
   let schema: z.ZodTypeAny;
 
   switch (field_type) {
-    case 'TEXT':
-    case 'LONG_TEXT': {
+    case "TEXT":
+    case "LONG_TEXT": {
       let strSchema = z.string();
       if (validation_rules.min !== undefined) {
         strSchema = strSchema.min(validation_rules.min);
@@ -35,8 +37,8 @@ export function compileCustomFieldZodType(definition: CustomFieldDefinition): z.
       break;
     }
 
-    case 'NUMBER':
-    case 'CURRENCY': {
+    case "NUMBER":
+    case "CURRENCY": {
       let numSchema = z.number({
         invalid_type_error: `Field '${definition.display_name}' must be a number`,
       });
@@ -50,57 +52,59 @@ export function compileCustomFieldZodType(definition: CustomFieldDefinition): z.
       break;
     }
 
-    case 'BOOLEAN': {
+    case "BOOLEAN": {
       schema = z.boolean({
         invalid_type_error: `Field '${definition.display_name}' must be a boolean`,
       });
       break;
     }
 
-    case 'DATE':
-    case 'DATETIME': {
+    case "DATE":
+    case "DATETIME": {
       schema = z.string().refine((val) => !isNaN(Date.parse(val)), {
         message: `Field '${definition.display_name}' must be a valid date or ISO timestamp`,
       });
       break;
     }
 
-    case 'SINGLE_SELECT': {
+    case "SINGLE_SELECT": {
       const allowedOptions = validation_rules.options || [];
       schema = z.string().refine((val) => allowedOptions.includes(val), {
-        message: `Value must be one of: ${allowedOptions.join(', ')}`,
+        message: `Value must be one of: ${allowedOptions.join(", ")}`,
       });
       break;
     }
 
-    case 'MULTI_SELECT': {
+    case "MULTI_SELECT": {
       const allowedOptions = validation_rules.options || [];
-      schema = z.array(z.string()).refine((arr) => arr.every((item) => allowedOptions.includes(item)), {
-        message: `All values must be from: ${allowedOptions.join(', ')}`,
-      });
+      schema = z
+        .array(z.string())
+        .refine((arr) => arr.every((item) => allowedOptions.includes(item)), {
+          message: `All values must be from: ${allowedOptions.join(", ")}`,
+        });
       break;
     }
 
-    case 'EMAIL': {
+    case "EMAIL": {
       schema = z.string().email({
         message: `Field '${definition.display_name}' must be a valid email address`,
       });
       break;
     }
 
-    case 'PHONE': {
+    case "PHONE": {
       schema = z.string().min(5).max(30);
       break;
     }
 
-    case 'URL': {
+    case "URL": {
       schema = z.string().url({
         message: `Field '${definition.display_name}' must be a valid URL`,
       });
       break;
     }
 
-    case 'RELATION': {
+    case "RELATION": {
       schema = z.string().uuid({
         message: `Field '${definition.display_name}' must be a valid UUID record reference`,
       });
@@ -122,7 +126,7 @@ export function compileCustomFieldZodType(definition: CustomFieldDefinition): z.
  * Compiles a list of tenant custom field definitions into a unified dynamic Zod schema.
  */
 export function compileCustomDataSchema(
-  definitions: CustomFieldDefinition[]
+  definitions: CustomFieldDefinition[],
 ): z.ZodObject<Record<string, z.ZodTypeAny>> {
   const shape: Record<string, z.ZodTypeAny> = {};
 
@@ -141,7 +145,7 @@ export function compileCustomDataSchema(
  */
 export function validateCustomData(
   definitions: CustomFieldDefinition[],
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Record<string, unknown> {
   const schema = compileCustomDataSchema(definitions);
   const result = schema.safeParse(data);
@@ -149,7 +153,7 @@ export function validateCustomData(
   if (!result.success) {
     const errorMap: Record<string, string> = {};
     for (const issue of result.error.issues) {
-      const key = issue.path.join('.') || 'root';
+      const key = issue.path.join(".") || "root";
       errorMap[key] = issue.message;
     }
     throw new CustomFieldValidationError(errorMap);

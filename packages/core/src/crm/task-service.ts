@@ -1,8 +1,8 @@
-import { withTenantContext } from '@business-os/database';
-import type { TenantContext } from '@business-os/types';
-import { assertPermission } from '../permissions/checker.js';
+import { withTenantContext } from "@business-os/database";
+import type { TenantContext } from "@business-os/types";
+import { assertPermission } from "../permissions/checker.js";
 
-export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export interface CreateTaskInput {
   leadId?: string | null;
@@ -22,9 +22,15 @@ export interface ListTasksFilters {
 /**
  * Creates a follow-up task with a deadline.
  */
-export async function createTask(context: TenantContext, input: CreateTaskInput) {
+export async function createTask(
+  context: TenantContext,
+  input: CreateTaskInput,
+) {
   // Salesperson can create tasks for themselves, managers can create for anyone
-  if (context.role === 'SALESPERSON' && input.assignedUserId !== context.userId) {
+  if (
+    context.role === "SALESPERSON" &&
+    input.assignedUserId !== context.userId
+  ) {
     input.assignedUserId = context.userId;
   }
 
@@ -42,8 +48,8 @@ export async function createTask(context: TenantContext, input: CreateTaskInput)
         input.title.trim(),
         input.description?.trim() || null,
         input.dueDate,
-        input.priority || 'MEDIUM',
-      ]
+        input.priority || "MEDIUM",
+      ],
     );
 
     return res.rows[0];
@@ -53,13 +59,16 @@ export async function createTask(context: TenantContext, input: CreateTaskInput)
 /**
  * Lists tasks enforcing assignment constraints for SALESPERSON.
  */
-export async function listTasks(context: TenantContext, filters: ListTasksFilters = {}) {
+export async function listTasks(
+  context: TenantContext,
+  filters: ListTasksFilters = {},
+) {
   return await withTenantContext(context.organizationId, async (tx) => {
-    const conditions: string[] = ['1 = 1'];
+    const conditions: string[] = ["1 = 1"];
     const params: unknown[] = [];
     let paramIdx = 1;
 
-    if (context.role === 'SALESPERSON') {
+    if (context.role === "SALESPERSON") {
       conditions.push(`assigned_user_id = $${paramIdx++}`);
       params.push(context.userId);
     } else if (filters.assignedUserId) {
@@ -72,7 +81,7 @@ export async function listTasks(context: TenantContext, filters: ListTasksFilter
       params.push(filters.leadId);
     }
 
-    if (typeof filters.isCompleted === 'boolean') {
+    if (typeof filters.isCompleted === "boolean") {
       conditions.push(`is_completed = $${paramIdx++}`);
       params.push(filters.isCompleted);
     }
@@ -81,7 +90,7 @@ export async function listTasks(context: TenantContext, filters: ListTasksFilter
       SELECT t.*, u.full_name as assignee_name
       FROM tasks t
       JOIN users u ON u.id = t.assigned_user_id
-      WHERE ${conditions.join(' AND ')}
+      WHERE ${conditions.join(" AND ")}
       ORDER BY t.is_completed ASC, t.due_date ASC
     `;
 
@@ -95,14 +104,19 @@ export async function listTasks(context: TenantContext, filters: ListTasksFilter
  */
 export async function completeTask(context: TenantContext, taskId: string) {
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    const existing = await tx.query("SELECT * FROM tasks WHERE id = $1", [
+      taskId,
+    ]);
     if (existing.rows.length === 0) {
-      throw new Error('Task not found');
+      throw new Error("Task not found");
     }
 
     const task = existing.rows[0];
-    if (context.role === 'SALESPERSON' && task.assigned_user_id !== context.userId) {
-      throw new Error('Cannot complete tasks assigned to other agents');
+    if (
+      context.role === "SALESPERSON" &&
+      task.assigned_user_id !== context.userId
+    ) {
+      throw new Error("Cannot complete tasks assigned to other agents");
     }
 
     const res = await tx.query(
@@ -110,7 +124,7 @@ export async function completeTask(context: TenantContext, taskId: string) {
        SET is_completed = true, completed_at = NOW(), completed_by_user_id = $1
        WHERE id = $2
        RETURNING *`,
-      [context.userId, taskId]
+      [context.userId, taskId],
     );
 
     return res.rows[0];

@@ -1,5 +1,5 @@
-import { withTenantContext } from '@business-os/database';
-import { logger } from '@business-os/logger';
+import { withTenantContext } from "@business-os/database";
+import { logger } from "@business-os/logger";
 import {
   type TenantContext,
   type CreateSavedViewInput,
@@ -9,26 +9,26 @@ import {
   type UpdateSavedViewInput,
   CreateSavedViewInputSchema,
   UpdateSavedViewInputSchema,
-} from '@business-os/types';
-import { queryEntities } from '../query/entity-query-service.js';
+} from "@business-os/types";
+import { queryEntities } from "../query/entity-query-service.js";
 
 export class ViewNotFoundError extends Error {
   constructor(public readonly viewId: string) {
     super(`Saved view '${viewId}' not found`);
-    this.name = 'ViewNotFoundError';
+    this.name = "ViewNotFoundError";
   }
 }
 
 export class ViewForbiddenError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ViewForbiddenError';
+    this.name = "ViewForbiddenError";
   }
 }
 
 export async function createSavedView(
   context: TenantContext,
-  rawInput: CreateSavedViewInput
+  rawInput: CreateSavedViewInput,
 ): Promise<SavedView> {
   const input = CreateSavedViewInputSchema.parse(rawInput);
 
@@ -39,7 +39,7 @@ export async function createSavedView(
         `UPDATE saved_views
          SET is_default = false
          WHERE user_id = $1 AND entity_type = $2`,
-        [context.userId, input.entity_type]
+        [context.userId, input.entity_type],
       );
     }
 
@@ -74,12 +74,16 @@ export async function createSavedView(
 
     const created = res.rows[0];
     if (!created) {
-      throw new Error('Failed to create saved view');
+      throw new Error("Failed to create saved view");
     }
 
     logger.info(
-      { organizationId: context.organizationId, viewId: created.id, name: created.name },
-      'Successfully created saved view'
+      {
+        organizationId: context.organizationId,
+        viewId: created.id,
+        name: created.name,
+      },
+      "Successfully created saved view",
     );
 
     return created;
@@ -88,7 +92,7 @@ export async function createSavedView(
 
 export async function listSavedViews(
   context: TenantContext,
-  entityType: string
+  entityType: string,
 ): Promise<SavedView[]> {
   return await withTenantContext(context.organizationId, async (client) => {
     const querySql = `
@@ -98,19 +102,22 @@ export async function listSavedViews(
       ORDER BY is_default DESC, name ASC
     `;
 
-    const res = await client.query<SavedView>(querySql, [entityType, context.userId]);
+    const res = await client.query<SavedView>(querySql, [
+      entityType,
+      context.userId,
+    ]);
     return res.rows;
   });
 }
 
 export async function getSavedView(
   context: TenantContext,
-  viewId: string
+  viewId: string,
 ): Promise<SavedView> {
   return await withTenantContext(context.organizationId, async (client) => {
     const res = await client.query<SavedView>(
       `SELECT * FROM saved_views WHERE id = $1`,
-      [viewId]
+      [viewId],
     );
 
     const view = res.rows[0];
@@ -120,7 +127,9 @@ export async function getSavedView(
 
     // Must be either shared or owned by this user
     if (!view.is_shared && view.user_id !== context.userId) {
-      throw new ViewForbiddenError('You do not have access to this private saved view');
+      throw new ViewForbiddenError(
+        "You do not have access to this private saved view",
+      );
     }
 
     return view;
@@ -130,14 +139,14 @@ export async function getSavedView(
 export async function updateSavedView(
   context: TenantContext,
   viewId: string,
-  rawInput: UpdateSavedViewInput
+  rawInput: UpdateSavedViewInput,
 ): Promise<SavedView> {
   const input = UpdateSavedViewInputSchema.parse(rawInput);
 
   return await withTenantContext(context.organizationId, async (client) => {
     const existingRes = await client.query<SavedView>(
       `SELECT * FROM saved_views WHERE id = $1`,
-      [viewId]
+      [viewId],
     );
     const existing = existingRes.rows[0];
     if (!existing) {
@@ -145,9 +154,11 @@ export async function updateSavedView(
     }
 
     // Only creator or organization OWNER/ADMIN can edit
-    const isOwnerOrAdmin = context.role === 'OWNER' || context.role === 'ADMIN';
+    const isOwnerOrAdmin = context.role === "OWNER" || context.role === "ADMIN";
     if (existing.user_id !== context.userId && !isOwnerOrAdmin) {
-      throw new ViewForbiddenError('Only the view owner or an admin can modify this saved view');
+      throw new ViewForbiddenError(
+        "Only the view owner or an admin can modify this saved view",
+      );
     }
 
     if (input.is_default) {
@@ -155,11 +166,11 @@ export async function updateSavedView(
         `UPDATE saved_views
          SET is_default = false
          WHERE user_id = $1 AND entity_type = $2`,
-        [context.userId, existing.entity_type]
+        [context.userId, existing.entity_type],
       );
     }
 
-    const updates: string[] = ['updated_at = NOW()'];
+    const updates: string[] = ["updated_at = NOW()"];
     const params: unknown[] = [viewId];
     let idx = 2;
 
@@ -194,7 +205,7 @@ export async function updateSavedView(
 
     const updateSql = `
       UPDATE saved_views
-      SET ${updates.join(', ')}
+      SET ${updates.join(", ")}
       WHERE id = $1
       RETURNING *
     `;
@@ -202,7 +213,7 @@ export async function updateSavedView(
     const res = await client.query<SavedView>(updateSql, params);
     const updated = res.rows[0];
     if (!updated) {
-      throw new Error('Failed to update saved view');
+      throw new Error("Failed to update saved view");
     }
 
     return updated;
@@ -211,21 +222,23 @@ export async function updateSavedView(
 
 export async function deleteSavedView(
   context: TenantContext,
-  viewId: string
+  viewId: string,
 ): Promise<void> {
   await withTenantContext(context.organizationId, async (client) => {
     const existingRes = await client.query<SavedView>(
       `SELECT * FROM saved_views WHERE id = $1`,
-      [viewId]
+      [viewId],
     );
     const existing = existingRes.rows[0];
     if (!existing) {
       throw new ViewNotFoundError(viewId);
     }
 
-    const isOwnerOrAdmin = context.role === 'OWNER' || context.role === 'ADMIN';
+    const isOwnerOrAdmin = context.role === "OWNER" || context.role === "ADMIN";
     if (existing.user_id !== context.userId && !isOwnerOrAdmin) {
-      throw new ViewForbiddenError('Only the view owner or an admin can delete this saved view');
+      throw new ViewForbiddenError(
+        "Only the view owner or an admin can delete this saved view",
+      );
     }
 
     await client.query(`DELETE FROM saved_views WHERE id = $1`, [viewId]);
@@ -235,7 +248,7 @@ export async function deleteSavedView(
 export async function executeSavedView<T extends Record<string, any>>(
   context: TenantContext,
   viewId: string,
-  runtimeOverrides?: Partial<EntityQueryOptions>
+  runtimeOverrides?: Partial<EntityQueryOptions>,
 ): Promise<{ view: SavedView; result: EntityQueryResult<T> }> {
   const view = await getSavedView(context, viewId);
 
@@ -247,6 +260,10 @@ export async function executeSavedView<T extends Record<string, any>>(
     offset: runtimeOverrides?.offset ?? 0,
   };
 
-  const result = await queryEntities<T>(context, view.entity_type, queryOptions);
+  const result = await queryEntities<T>(
+    context,
+    view.entity_type,
+    queryOptions,
+  );
   return { view, result };
 }
