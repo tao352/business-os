@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { withTenantContext } from "@business-os/database";
-import { enqueueOutboxEvent } from "../rules/outbox-service.js";
+import {
+  enqueueOutboxEvent,
+  processPendingOutboxEvents,
+  TerminalOutboxError,
+} from "../rules/outbox-service.js";
 import type {
   TenantContext,
   SendWhatsAppTemplateInput,
@@ -15,7 +19,6 @@ import {
   DefaultWhatsAppApiClient,
 } from "./whatsapp-client.js";
 import { findWhatsAppIntegrationByPhoneNumberId } from "./whatsapp-integration-service.js";
-
 import { getDecryptedWhatsAppIntegration } from "../integrations/credential-service.js";
 
 export interface ProcessWebhookResult {
@@ -26,19 +29,17 @@ export interface ProcessWebhookResult {
 }
 
 /**
- * Sends an outbound WhatsApp message (Template or Free-form text) using durable outbox delivery semantics.
- * Follows explicit lifecycle: PENDING -> SENDING -> SENT | FAILED | UNKNOWN.
- * Provider call occurs strictly outside database transactions.
+ * Enqueues an outbound WhatsApp message (Template or Free-form text) into the transactional outbox.
+ * Strictly ENQUEUE-ONLY: writes PENDING message and outbox event in a single database transaction.
+ * Zero external HTTP provider calls occur within this function.
  */
 export async function sendWhatsAppMessage(
   context: TenantContext,
   input: SendWhatsAppTemplateInput | SendWhatsAppTextInput,
-  client?: WhatsAppApiClient,
+  _client?: WhatsAppApiClient,
   executionOptions?: { messageId?: string; idempotencyKey?: string },
 ): Promise<WhatsAppMessageRecord> {
-  const apiClient = client || new DefaultWhatsAppApiClient();
-
-  // 1. Fetch Integration credentials with decrypted token
+  // 1. Fetch Integration credentials to ensure integration exists
   const integration = await getDecryptedWhatsAppIntegration(
     context,
     input.phoneNumberId,
@@ -63,14 +64,15 @@ export async function sendWhatsAppMessage(
     bodyText = input.text;
   }
 
-  // 2. Atomically persist PENDING message record and outbox event before provider dispatch
-  await withTenantContext(context.organizationId, async (tx) => {
-    await tx.query(
+  // 2. Atomically persist PENDING message record and outbox event in ONE database transaction
+  return await withTenantContext(context.organizationId, async (tx) => {
+    const msgRes = await tx.query(
       `INSERT INTO whatsapp_messages (
         id, organization_id, wamid, lead_id, direction, sender_phone,
         recipient_phone, message_type, body, status
       ) VALUES ($1, $2, NULL, $3, 'OUTBOUND', $4, $5, $6, $7, 'PENDING')
-      ON CONFLICT (id) DO NOTHING`,
+      ON CONFLICT (id) DO NOTHING
+      RETURNING *`,
       [
         messageId,
         context.organizationId,
@@ -99,7 +101,75 @@ export async function sendWhatsAppMessage(
       },
       idempotencyKey,
     );
+
+    const msg = msgRes.rows[0];
+    return {
+      id: msg.id,
+      organizationId: msg.organization_id,
+      wamid: msg.wamid,
+      leadId: msg.lead_id,
+      direction: msg.direction,
+      senderPhone: msg.sender_phone,
+      recipientPhone: msg.recipient_phone,
+      messageType: msg.message_type,
+      body: msg.body,
+      status: msg.status,
+      createdAt: msg.created_at,
+    };
   });
+}
+
+/**
+ * Outbox processor handler for 'whatsapp.send_outbound' events.
+ * Executes external Meta Graph API dispatch strictly outside DB transactions.
+ * Guarantees durable delivery lifecycle and suppresses blind retries on ambiguous failures.
+ */
+export async function handleWhatsAppOutboundEvent(
+  context: TenantContext,
+  payload: Record<string, unknown>,
+  client?: WhatsAppApiClient,
+): Promise<{ wamid: string; status: "SENT" } | { status: "SKIPPED" }> {
+  const apiClient = client || new DefaultWhatsAppApiClient();
+  const messageId = String(payload.messageId);
+  const phoneNumberId = String(payload.phoneNumberId);
+  const recipientPhone = String(payload.recipientPhone);
+  const messageType = String(payload.messageType);
+  const bodyText = String(payload.bodyText || "");
+  const leadId = payload.leadId ? String(payload.leadId) : null;
+
+  // 1. Inspect current message state in database
+  const currentMsg = await withTenantContext(
+    context.organizationId,
+    async (tx) => {
+      const res = await tx.query(
+        `SELECT id, status, wamid FROM whatsapp_messages WHERE id = $1 AND organization_id = $2`,
+        [messageId, context.organizationId],
+      );
+      return res.rows[0];
+    },
+  );
+
+  if (!currentMsg) {
+    throw new TerminalOutboxError(`Message with id ${messageId} not found`);
+  }
+
+  // Idempotency: if already confirmed SENT, DELIVERED, or READ, skip
+  if (["SENT", "DELIVERED", "READ"].includes(currentMsg.status)) {
+    return { wamid: currentMsg.wamid, status: "SENT" };
+  }
+
+  // Ambiguous suppression: if message was already marked UNKNOWN, reject blind retry
+  if (currentMsg.status === "UNKNOWN") {
+    throw new TerminalOutboxError(
+      `Message ${messageId} is in UNKNOWN status; blind retry suppressed pending webhook reconciliation.`,
+    );
+  }
+
+  // 2. Fetch decrypted integration credentials
+  const integration = await getDecryptedWhatsAppIntegration(
+    context,
+    phoneNumberId,
+  );
 
   // 3. Transition message status to SENDING
   await withTenantContext(context.organizationId, async (tx) => {
@@ -109,32 +179,34 @@ export async function sendWhatsAppMessage(
     );
   });
 
-  // 4. Provider Dispatch (NETWORK CALL STRICTLY OUTSIDE DATABASE TRANSACTION)
+  // 4. Provider Dispatch (OUTSIDE DATABASE TRANSACTION)
   let wamid: string;
   try {
-    if ("templateName" in input) {
+    if (messageType === "template") {
+      const templateName = String(payload.templateName);
+      const languageCode = String(payload.languageCode || "en");
+      const variables = Array.isArray(payload.variables)
+        ? (payload.variables as string[])
+        : undefined;
       const res = await apiClient.sendTemplate(
-        input.phoneNumberId,
+        phoneNumberId,
         integration.access_token,
-        input.recipientPhone,
-        input.templateName,
-        input.languageCode || "en",
-        input.variables,
+        recipientPhone,
+        templateName,
+        languageCode,
+        variables,
       );
       wamid = res.wamid;
     } else {
       const res = await apiClient.sendText(
-        input.phoneNumberId,
+        phoneNumberId,
         integration.access_token,
-        input.recipientPhone,
-        input.text,
+        recipientPhone,
+        bodyText,
       );
       wamid = res.wamid;
     }
   } catch (err: any) {
-    // 5. Ambiguous failure recovery:
-    // If a network timeout or reset occurred during SENDING, transition to UNKNOWN
-    // rather than blind immediate resend to prevent customer message duplication.
     const isAmbiguousNetworkError =
       err.code === "ECONNRESET" ||
       err.code === "ETIMEDOUT" ||
@@ -151,56 +223,67 @@ export async function sendWhatsAppMessage(
       );
     });
 
-    throw err;
+    if (isAmbiguousNetworkError) {
+      throw new TerminalOutboxError(
+        `Ambiguous network error during dispatch: ${err.message}. Transitioned message ${messageId} to UNKNOWN; blind retry suppressed.`,
+      );
+    }
+
+    throw new TerminalOutboxError(
+      `Definitive provider failure: ${err.message}`,
+    );
   }
 
-  // 6. On Meta confirmation, store WAMID and transition status to SENT
-  return await withTenantContext(context.organizationId, async (tx) => {
-    const msgRes = await tx.query(
+  // 5. On provider confirmation, mark message SENT with wamid and log activity
+  await withTenantContext(context.organizationId, async (tx) => {
+    await tx.query(
       `UPDATE whatsapp_messages
        SET status = 'SENT', wamid = $1
-       WHERE id = $2 AND organization_id = $3
-       RETURNING *`,
+       WHERE id = $2 AND organization_id = $3`,
       [wamid, messageId, context.organizationId],
     );
 
-    const msg = msgRes.rows[0];
-
-    // 7. Record Activity on Lead Timeline if leadId present
-    if (input.leadId) {
+    if (leadId) {
       await tx.query(
         `INSERT INTO activities (
           organization_id, lead_id, user_id, activity_type, summary, details
         ) VALUES ($1, $2, $3, 'WHATSAPP', $4, $5)`,
         [
           context.organizationId,
-          input.leadId,
+          leadId,
           context.userId,
           `Outbound WhatsApp ${messageType}: ${bodyText.slice(0, 60)}`,
           JSON.stringify({
             wamid,
-            recipient: input.recipientPhone,
+            phoneNumberId,
+            recipientPhone,
             messageType,
-            body: bodyText,
           }),
         ],
       );
     }
-
-    return {
-      id: msg.id,
-      organizationId: msg.organization_id,
-      wamid: msg.wamid,
-      leadId: msg.lead_id,
-      direction: msg.direction,
-      senderPhone: msg.sender_phone,
-      recipientPhone: msg.recipient_phone,
-      messageType: msg.message_type,
-      body: msg.body,
-      status: msg.status,
-      createdAt: msg.created_at,
-    };
   });
+
+  return { wamid, status: "SENT" };
+}
+
+/**
+ * Convenience helper to process pending WhatsApp outbound messages for a tenant.
+ */
+export async function processPendingWhatsAppOutbox(
+  context: TenantContext,
+  client?: WhatsAppApiClient,
+  limit = 20,
+): Promise<{ processed: number; failed: number }> {
+  return await processPendingOutboxEvents(
+    context,
+    {
+      "whatsapp.send_outbound": async (payload) => {
+        await handleWhatsAppOutboundEvent(context, payload, client);
+      },
+    },
+    limit,
+  );
 }
 
 /**

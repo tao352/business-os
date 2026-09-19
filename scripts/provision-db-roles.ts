@@ -23,7 +23,12 @@ export async function provisionRuntimeDbRoles(
   customClient?: PoolClient,
   options?: ProvisionRolesOptions,
 ): Promise<{ username: string; provisioned: boolean }> {
-  const username = options?.username || process.env.APP_DB_USER || "app_user";
+  const username = "app_user";
+  if (options?.username && options.username !== "app_user") {
+    throw new RoleProvisioningError(
+      `Custom runtime role username '${options.username}' is not supported. The Business OS runtime role is fixed to 'app_user'.`,
+    );
+  }
   const password =
     options?.password !== undefined
       ? options.password

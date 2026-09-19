@@ -20,6 +20,13 @@ export interface OutboxEvent {
   processedAt?: Date | null;
 }
 
+export class TerminalOutboxError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TerminalOutboxError";
+  }
+}
+
 /**
  * Enqueues an external side effect into the outbox_events table within the caller's transaction.
  * Guarantees zero side effects occur if the database transaction rolls back.
@@ -80,7 +87,7 @@ export async function processPendingOutboxEvents(
           AND (
             status = 'PENDING'
             OR (status = 'FAILED' AND retry_count < max_retries)
-            OR (status = 'PROCESSING' AND processing_started_at < NOW() - INTERVAL '5 minutes')
+            OR (status = 'PROCESSING' AND retry_count < max_retries AND processing_started_at < NOW() - INTERVAL '5 minutes')
           )
         ORDER BY created_at ASC
         LIMIT $2
@@ -119,13 +126,13 @@ export async function processPendingOutboxEvents(
     if (!handler) {
       logger.warn(
         { eventType: event.eventType, eventId: event.id },
-        "No registered handler for outbox event type; marking FAILED to prevent stuck processing",
+        "No registered handler for outbox event type; marking FAILED (terminal) to prevent stuck processing",
       );
       failed++;
       await withTenantContext(context.organizationId, async (tx) => {
         await tx.query(
           `UPDATE outbox_events
-           SET status = 'FAILED', last_error = $1, updated_at = NOW()
+           SET status = 'FAILED', retry_count = max_retries, last_error = $1, updated_at = NOW()
            WHERE id = $2`,
           [
             `No handler registered for event type: ${event.eventType}`,
@@ -152,11 +159,13 @@ export async function processPendingOutboxEvents(
     } catch (err) {
       failed++;
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const isTerminal = err instanceof TerminalOutboxError;
       logger.error(
         {
           eventId: event.id,
           error: errorMsg,
-          retryCount: event.retryCount + 1,
+          isTerminal,
+          retryCount: isTerminal ? event.maxRetries : event.retryCount + 1,
         },
         "Failed to process outbox event",
       );
@@ -164,9 +173,12 @@ export async function processPendingOutboxEvents(
       await withTenantContext(context.organizationId, async (tx) => {
         await tx.query(
           `UPDATE outbox_events
-           SET status = 'FAILED', retry_count = retry_count + 1, last_error = $1, updated_at = NOW()
-           WHERE id = $2`,
-          [errorMsg, event.id],
+           SET status = 'FAILED',
+               retry_count = CASE WHEN $1 = true THEN max_retries ELSE retry_count + 1 END,
+               last_error = $2,
+               updated_at = NOW()
+           WHERE id = $3`,
+          [isTerminal, errorMsg, event.id],
         );
       });
     }

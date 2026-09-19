@@ -262,3 +262,25 @@
   5. **Decoupled Meta Graph Fetch:** In `ingestMetaLead`, resolve integration via `resolve_meta_tenant`, execute external Graph API network fetch completely outside database transactions, then enter a short tenant transaction for deduplication and persistence.
   6. **Durable WhatsApp Delivery Semantics:** Replaced claims of "exactly-once" delivery with an explicit multi-state lifecycle: `PENDING` -> `SENDING` -> `SENT` | `FAILED` | `UNKNOWN`. Atomic pre-dispatch write of message and outbox event. Network timeouts / ambiguous errors during `SENDING` transition status to `UNKNOWN` to avoid blind duplicate sends. Later webhooks reconcile against `wamid`.
 - **Rationale:** Eliminates RLS deadlock on inbound webhooks, guarantees resilient crash recovery in asynchronous outbox processing, avoids double-messaging end clients in Egyptian real estate workflows, and maintains least privilege and zero data leakage across tenants.
+
+---
+
+## ADR-019: H0 Stabilization Patch v2.2 — Routing Uniqueness, Enqueue-Only Outbox, and Crash Resiliency
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Review of commit `ed1afe6` identified two critical P0 vulnerabilities and edge cases: (1) Lack of platform-wide active uniqueness on integration identifiers (`page_id`, `phone_number_id`) allowed cross-tenant routing ambiguity in `SECURITY DEFINER` functions; (2) `sendWhatsAppMessage()` enqueued an outbox event while directly dispatching HTTP requests, leaving outbox rows `PENDING` and causing duplicate sends when workers run; (3) Stale `PROCESSING` outbox leases failed to verify `retry_count < max_retries`, and unregistered handlers caused infinite retry loops; (4) Production compose retained a weak password fallback.
+- **Decision:**
+  1. **Global Active Integration Uniqueness (P0 Cross-Tenant Protection):** Migration `0016_h0_global_active_integration_uniqueness.sql` applies partial unique indexes:
+     - `CREATE UNIQUE INDEX idx_meta_integrations_active_page_id ON meta_integrations(page_id) WHERE is_active = true;`
+     - `CREATE UNIQUE INDEX idx_whatsapp_integrations_active_phone_id ON whatsapp_integrations(phone_number_id) WHERE is_active = true;`
+       No two tenants can simultaneously activate the same Meta Page ID or WhatsApp Phone Number ID.
+  2. **Enqueue-Only WhatsApp Outbox Architecture (P0 Duplicate Elimination):** Refactored `sendWhatsAppMessage()` to be strictly enqueue-only. It atomically creates the message record in `PENDING` status and enqueues the `whatsapp.send_outbound` outbox event in the tenant transaction. Zero HTTP provider network calls occur within `sendWhatsAppMessage()`.
+  3. **Outbox Worker Dispatch & Terminal Suppression:** External provider dispatch is exclusively handled by `handleWhatsAppOutboundEvent` / `processPendingWhatsAppOutbox()`. When ambiguous network timeouts occur, the message is marked `UNKNOWN` and the outbox event transitions to `FAILED` with `retry_count = max_retries` via `TerminalOutboxError` to suppress blind retries pending webhook reconciliation.
+  4. **Outbox Lease & Missing Handler Resiliency:** The CTE claim query now enforces `status = 'PROCESSING' AND retry_count < max_retries AND processing_started_at < NOW() - INTERVAL '5 minutes'`. Unregistered event types are marked `FAILED` with `retry_count = max_retries` (Dead Letter), preventing infinite retry loops.
+  5. **Fail-Closed Production Compose & Fixed Runtime Role:** In `deploy/docker-compose.prod.yml`, `${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}` enforces fail-closed startup without fallback. The runtime role name is strictly fixed to `app_user` in `scripts/provision-db-roles.ts`.
+- **Recorded Technical Debt & Future Architectural Improvements:**
+  - _Trigger/Source Idempotency:_ Propagate stable trigger/event execution ID from webhook/job/scanner source for true end-to-end source-event idempotency.
+  - _Least-Privilege Routing Owner Grants:_ Restrict `business_os_router_owner` permissions from table-level `SELECT` to column-level `SELECT (id, organization_id, page_id/phone_number_id, is_active)` for defense-in-depth.
+  - _Short Claim Transaction in Meta Webhooks:_ Add a pre-claim transaction on `webhook_events` prior to external Meta Graph fetch to avoid redundant network calls during rapid duplicate webhook bursts.
+- **Rationale:** Completely eliminates cross-tenant routing hijacking, guarantees zero duplicate message sends in background workers, stabilizes outbox lease recovery, and enforces fail-closed production deployment.

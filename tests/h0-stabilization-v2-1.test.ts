@@ -12,6 +12,7 @@ import {
   configureMetaIntegration,
   configureWhatsAppIntegration,
   sendWhatsAppMessage,
+  processPendingWhatsAppOutbox,
   ingestMetaLead,
   MockWhatsAppApiClient,
 } from "../packages/core/src/index.js";
@@ -327,7 +328,7 @@ describe("H0 Stabilization Patch v2.1 Verification", () => {
       expect(res.action).toBe("CREATED");
     });
 
-    it("should mark WhatsApp message as UNKNOWN on ambiguous network timeout", async () => {
+    it("should enqueue message as PENDING and transition to UNKNOWN on ambiguous network timeout during dispatch", async () => {
       const timeoutClient = new MockWhatsAppApiClient();
       timeoutClient.sendText = async () => {
         const err: any = new Error("connect ETIMEDOUT 157.240.1.1:443");
@@ -335,17 +336,21 @@ describe("H0 Stabilization Patch v2.1 Verification", () => {
         throw err;
       };
 
-      await expect(
-        sendWhatsAppMessage(
-          tenantContext,
-          {
-            phoneNumberId: waPhoneId,
-            recipientPhone: "+201055556666",
-            text: "Testing network timeout",
-          },
-          timeoutClient,
-        ),
-      ).rejects.toThrow(/ETIMEDOUT/);
+      const enqueued = await sendWhatsAppMessage(tenantContext, {
+        phoneNumberId: waPhoneId,
+        recipientPhone: "+201055556666",
+        text: "Testing network timeout",
+      });
+
+      expect(enqueued.status).toBe("PENDING");
+      expect(enqueued.wamid).toBeNull();
+
+      // Process outbox with timeout client
+      const outboxRes = await processPendingWhatsAppOutbox(
+        tenantContext,
+        timeoutClient,
+      );
+      expect(outboxRes.failed).toBeGreaterThanOrEqual(1);
 
       const msg = await withTenantContext(
         tenantContext.organizationId,
