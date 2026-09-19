@@ -1,0 +1,30 @@
+{
+  "name": "business-os",
+  "description": "AI-Configurable Business Operating System (Real Estate First)",
+  "type": "docker-compose",
+  "composeFile": "deploy/docker-compose.prod.yml",
+  "domains": [
+    {
+      "domain": "app.business-os.cloud",
+      "service": "app",
+      "port": 3000
+    },
+    {
+      "domain": "storage.business-os.cloud",
+      "service": "minio",
+      "port": 9000
+    }
+  ],
+  "healthCheck": {
+    "enabled": true,
+    "path": "/api/health",
+    "port": 3000,
+    "interval": 10,
+    "timeout": 5,
+    "retries": 3
+  },
+  "rollingUpdate": {
+    "enabled": true,
+    "drainTimeout": 15
+  }
+}

@@ -12,3 +12,5 @@ export * from "./rules/index.js";
 export * from "./whatsapp/index.js";
 export * from "./ai/index.js";
 export * from "./analytics/index.js";
+export * from "./ops/index.js";
+export * from "./pilot/index.js";

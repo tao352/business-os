@@ -156,3 +156,47 @@
   3. Custom fields are stored in `custom_field_definitions` and populated in `custom_data` JSONB columns, never modifying physical table schemas.
   4. Custom field keys are sanitized to valid ASCII identifiers via transliteration and safe deterministic hashing.
 - **Rationale:** Delivers seamless AI-driven customization with complete transparency, role-based safety, zero risk of schema corruption, and full tenant isolation.
+
+---
+
+## ADR-012: Operations Observability, PII-Safe Error Context, and Multi-Tier Access Model
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** Operating a multi-tenant SaaS requires full traceability across webhook ingestion, CRM workflows, and AI generation, while strictly protecting customer PII and restricting automated agent operational access.
+- **Decision:**
+  1. Build a centralized `feature_flags` engine supporting global kill-switches, tenant-targeted beta lists, and deterministic percentage rollouts.
+  2. Implement an end-to-end `DiagnosticContext` propagator (`trace_id`, `correlation_id`, `organization_id`, `release_version`).
+  3. Implement `sanitizeDiagnosticError` that automatically scrubs Bearer tokens, passwords, customer phone numbers, and email addresses before error persistence or logging.
+  4. Enforce a 3-tier operational access model:
+     - `OBSERVE`: Read-only health, metrics, and incident status (default for agents).
+     - `SAFE_OPS`: Controlled, audited operations (e.g. job retry, connector toggling).
+     - `BREAK_GLASS`: Emergency operations requiring explicit human approval and permanent audit logging.
+- **Rationale:** Prevents unauthorized production mutations, ensures GDPR/privacy compliance through automated PII scrubbing, and provides instant incident diagnosis without SSH access.
+
+---
+
+## ADR-013: Production Deployment via Coolify/Docker and Backup Viability Drill
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** The system requires reproducible, zero-downtime production deployment on VPS infrastructure without Kubernetes overhead, combined with proven backup and disaster recovery validation.
+- **Decision:**
+  1. Provide production Docker Compose and Coolify deployment configurations (`deploy/docker-compose.prod.yml`, `deploy/coolify.json`) with health check dependencies and rolling update policies.
+  2. Enforce the Expand-Migrate-Contract rule for all database migrations, flagging immediate `DROP TABLE`, `DROP COLUMN`, or table-locking operations before execution.
+  3. Implement automated backup manifest generation (`createBackupManifest`) with SHA-256 cryptographic verification.
+  4. Adhere to Rule 46: _"A backup that has never been restored is not considered proven."_ Build automated verification drills (`verifyBackupViability`) to guarantee archive restorability.
+- **Rationale:** Eliminates deployment failures, guarantees zero-downtime rolling updates, and ensures 100% data recoverability in disaster scenarios.
+
+---
+
+## ADR-014: Controlled Pilot Onboarding and Realistic Egyptian Real Estate Seed Baseline
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** To ensure the system operates reliably under real-world commercial conditions, the platform requires an automated pilot onboarding pipeline with a realistic domain baseline for Egyptian real estate developers.
+- **Decision:**
+  1. Implement `provisionPilotOrganization` to automate tenant creation, staff role assignment (`SALES_MANAGER`, `SALESPERSON`), and pilot feature flag enablement in a single atomic workflow.
+  2. Build a high-fidelity Egyptian real estate seed generator (`seedPilotRealEstateData`) seeding major projects (Taj City, Sarai), diverse unit inventory with EGP pricing, realistic leads, round-robin automation rules, and standard 8-year payment schedules.
+  3. Validate the complete end-to-end commercial lifecycle (lead ingestion -> round-robin assignment -> unit reservation -> contract execution -> revenue attribution -> executive dashboard) with 100% tenant isolation.
+- **Rationale:** Provides an out-of-the-box turnkey experience for prospective real estate clients, accelerates pilot go-lives, and continuously verifies multi-tenant isolation against live commercial data.

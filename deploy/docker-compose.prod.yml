@@ -1,0 +1,118 @@
+# Production Docker Compose for Business OS (Coolify / Standalone VPS)
+# Architecture Constitution Section 1 & Master Plan Section 43
+
+services:
+  app:
+    image: ${DOCKER_REGISTRY:-ghcr.io/business-os}/app:${APP_RELEASE_VERSION:-latest}
+    container_name: business_os_app
+    restart: always
+    environment:
+      NODE_ENV: production
+      APP_RELEASE_VERSION: ${APP_RELEASE_VERSION:-0.1.0}
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:-business-os-storage}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "coolify.managed=true"
+      - "coolify.type=service"
+
+  worker:
+    image: ${DOCKER_REGISTRY:-ghcr.io/business-os}/worker:${APP_RELEASE_VERSION:-latest}
+    container_name: business_os_worker
+    restart: always
+    environment:
+      NODE_ENV: production
+      APP_RELEASE_VERSION: ${APP_RELEASE_VERSION:-0.1.0}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "coolify.managed=true"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: business_os_postgres_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-business_os_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-business_os_prod}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ../packages/database/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-business_os_admin} -d ${POSTGRES_DB:-business_os_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "coolify.managed=true"
+
+  redis:
+    image: redis:7-alpine
+    container_name: business_os_redis_prod
+    restart: always
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "coolify.managed=true"
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: business_os_minio_prod
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    volumes:
+      - minio_prod_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "coolify.managed=true"
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:
+  minio_prod_data:

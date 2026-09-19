@@ -11,3 +11,4 @@ export * from "./ai-brain.js";
 export * from "./analytics.js";
 export * from "./ai-query.js";
 export * from "./ai-builder.js";
+export * from "./ops.js";
