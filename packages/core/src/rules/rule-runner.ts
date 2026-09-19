@@ -11,12 +11,10 @@ import {
   executeRuleAction,
   ActionExecutionResult,
 } from "./rule-actions-executor.js";
-import type { WhatsAppApiClient } from "../whatsapp/whatsapp-client.js";
 
 export interface TriggerRulesOptions {
   hopDepth?: number;
   isSystemAction?: boolean;
-  whatsAppClient?: WhatsAppApiClient;
 }
 
 /**
@@ -93,7 +91,7 @@ export async function triggerRules(
           action,
           entityType,
           entity,
-          { whatsAppClient: options.whatsAppClient, executionId, actionIndex },
+          { executionId, actionIndex },
         );
         actionIndex++;
         executedActions.push(actionResult);

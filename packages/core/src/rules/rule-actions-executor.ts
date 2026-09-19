@@ -3,11 +3,7 @@ import type { TenantContext, RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
-import { decryptSecret } from "../security/crypto-service.js";
-import {
-  WhatsAppApiClient,
-  DefaultWhatsAppApiClient,
-} from "../whatsapp/whatsapp-client.js";
+import { enqueueWhatsAppOutbound } from "../whatsapp/whatsapp-service.js";
 
 export interface ActionExecutionResult {
   action_type: string;
@@ -17,7 +13,6 @@ export interface ActionExecutionResult {
 }
 
 export interface ExecuteRuleActionOptions {
-  whatsAppClient?: WhatsAppApiClient;
   executionId?: string;
   actionIndex?: number;
 }
@@ -349,73 +344,30 @@ export async function executeRuleAction(
           )
           .digest("hex");
 
-        const outboxId = await enqueueOutboxEvent(
+        const msg = await enqueueWhatsAppOutbound(
           tx,
           context,
-          "WHATSAPP_SEND_TEMPLATE",
           {
-            integrationId: integration.id,
             phoneNumberId: integration.phone_number_id,
             recipientPhone: String(entity.phone),
+            messageType: "template",
             templateName,
             languageCode,
             variables,
-            entityId,
+            leadId: entityId,
           },
           idempotencyKey,
         );
 
-        // 2. If dedicated WhatsApp client is provided (test/inline mode), execute and record
-        if (options?.whatsAppClient) {
-          const decryptedToken = decryptSecret(integration.access_token);
-          const sendRes = await options.whatsAppClient.sendTemplate(
-            integration.phone_number_id,
-            decryptedToken,
-            String(entity.phone),
-            templateName,
-            languageCode,
-            variables,
-          );
-
-          await tx.query(
-            `INSERT INTO whatsapp_messages (
-              organization_id, wamid, lead_id, direction, sender_phone,
-              recipient_phone, message_type, body, status
-            ) VALUES ($1, $2, $3, 'OUTBOUND', $4, $5, 'template', $6, 'SENT')`,
-            [
-              context.organizationId,
-              sendRes.wamid,
-              entityId,
-              integration.phone_number || integration.phone_number_id,
-              String(entity.phone),
-              `Template: ${templateName}`,
-            ],
-          );
-
-          await tx.query(
-            `INSERT INTO activities (
-              organization_id, lead_id, user_id, activity_type, summary, details
-            ) VALUES ($1, $2, $3, 'WHATSAPP', $4, $5)`,
-            [
-              context.organizationId,
-              entityId,
-              context.userId,
-              `Automated WhatsApp Template Sent: ${templateName}`,
-              JSON.stringify({ wamid: sendRes.wamid, templateName, variables }),
-            ],
-          );
-
-          return {
-            action_type: action.action_type,
-            status: "SUCCESS",
-            result: { wamid: sendRes.wamid, templateName, outboxId },
-          };
-        }
-
         return {
           action_type: action.action_type,
           status: "SUCCESS",
-          result: { outboxId, queued: true, templateName },
+          result: {
+            messageId: msg.id,
+            outboxId: msg.outboxId || msg.id,
+            outbox: "ENQUEUED",
+            templateName,
+          },
         };
       }
 

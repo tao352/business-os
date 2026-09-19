@@ -307,7 +307,7 @@ describe("H0 Stabilization Patch v2.2 — Routing Uniqueness & Durable Outbox", 
   });
 
   describe("3. Outbox Leases & Missing Handler Resiliency", () => {
-    it("does not reclaim a stale PROCESSING event if retry_count >= max_retries", async () => {
+    it("automatically transitions a stale PROCESSING event to FAILED if retry_count >= max_retries", async () => {
       const key = `exhausted-stale-${crypto.randomUUID()}`;
       await withTenantContext(tenantAContext.organizationId, async (tx) => {
         await tx.query(
@@ -332,13 +332,14 @@ describe("H0 Stabilization Patch v2.2 — Routing Uniqueness & Durable Outbox", 
         tenantAContext.organizationId,
         async (tx) => {
           const r = await tx.query(
-            `SELECT status FROM outbox_events WHERE idempotency_key = $1`,
+            `SELECT status, last_error FROM outbox_events WHERE idempotency_key = $1`,
             [key],
           );
           return r.rows[0];
         },
       );
-      expect(dbEvent.status).toBe("PROCESSING"); // Untouched, never reclaimed
+      expect(dbEvent.status).toBe("FAILED"); // Cleanly transitioned to FAILED
+      expect(dbEvent.last_error).toMatch(/lease expired/i);
     });
 
     it("marks unregistered event type as terminal FAILED with retry_count = max_retries", async () => {

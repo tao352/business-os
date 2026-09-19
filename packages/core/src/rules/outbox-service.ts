@@ -78,7 +78,22 @@ export async function processPendingOutboxEvents(
   let processed = 0;
   let failed = 0;
 
-  // 1. Atomically claim pending or expired-lease events using a CTE with FOR UPDATE SKIP LOCKED
+  // 1. Atomically transition exhausted stale PROCESSING events to FAILED
+  await withTenantContext(context.organizationId, async (tx) => {
+    await tx.query(
+      `UPDATE outbox_events
+       SET status = 'FAILED',
+           last_error = COALESCE(last_error, 'Processing lease expired with maximum retries exhausted'),
+           updated_at = NOW()
+       WHERE organization_id = $1
+         AND status = 'PROCESSING'
+         AND retry_count >= max_retries
+         AND processing_started_at < NOW() - INTERVAL '5 minutes'`,
+      [context.organizationId],
+    );
+  });
+
+  // 2. Atomically claim pending or expired-lease events using a CTE with FOR UPDATE SKIP LOCKED
   const events = await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
       `WITH claimable AS (

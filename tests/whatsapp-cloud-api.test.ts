@@ -459,15 +459,12 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         source: "VIP_CAMPAIGN",
       });
 
-      // 3. Trigger Smart Rules
+      // 3. Trigger Smart Rules (enqueue outbox event, zero inline provider calls)
       const executions = await triggerRules(
         orgAContext,
         "lead.created",
         "lead",
         lead,
-        {
-          whatsAppClient: mockClient,
-        },
       );
 
       expect(executions).toHaveLength(1);
@@ -476,6 +473,18 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         "whatsapp.send_template",
       );
 
+      // Prior to outbox worker execution, provider has received 0 dispatches
+      expect(
+        mockClient.sentTemplates.find((t) => t.recipientPhone === vipPhone),
+      ).toBeUndefined();
+
+      // 4. Process pending outbox events via worker
+      const outboxRes = await processPendingWhatsAppOutbox(
+        orgAContext,
+        mockClient,
+      );
+      expect(outboxRes.processed).toBeGreaterThanOrEqual(1);
+
       // Verify mockClient received the template dispatch
       const sent = mockClient.sentTemplates.find(
         (t) => t.recipientPhone === vipPhone,
@@ -483,7 +492,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
       expect(sent).toBeDefined();
       expect(sent?.templateName).toBe("instant_vip_welcome");
 
-      // Verify message logged in whatsapp_messages table
+      // Verify message logged in whatsapp_messages table with status SENT
       const waMsgs = await withTenantContext(
         orgAContext.organizationId,
         async (tx) => {
@@ -496,6 +505,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
       );
       expect(waMsgs).toHaveLength(1);
       expect(waMsgs[0].direction).toBe("OUTBOUND");
+      expect(waMsgs[0].status).toBe("SENT");
     });
   });
 

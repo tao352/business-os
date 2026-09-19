@@ -284,3 +284,22 @@
   - _Least-Privilege Routing Owner Grants:_ Restrict `business_os_router_owner` permissions from table-level `SELECT` to column-level `SELECT (id, organization_id, page_id/phone_number_id, is_active)` for defense-in-depth.
   - _Short Claim Transaction in Meta Webhooks:_ Add a pre-claim transaction on `webhook_events` prior to external Meta Graph fetch to avoid redundant network calls during rapid duplicate webhook bursts.
 - **Rationale:** Completely eliminates cross-tenant routing hijacking, guarantees zero duplicate message sends in background workers, stabilizes outbox lease recovery, and enforces fail-closed production deployment.
+
+---
+
+## ADR-020: H0 Stabilization Patch v2.3 — Unified WhatsApp Outbox, Crash-After-Send Recovery, and Real API Idempotency
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Deep inspection of commit `e8762d3` identified three critical architectural vulnerabilities:
+  1. Smart Rules automation generated an isolated event type (`WHATSAPP_SEND_TEMPLATE`) instead of the unified `whatsapp.send_outbound`, and tests bypassed production architecture via an inline `whatsAppClient` execution path inside database transactions.
+  2. If an outbox worker crashed after Meta accepted a message but before committing the `SENT` status and `wamid`, the message remained in `SENDING`. Upon lease recovery (after 5 minutes), the worker re-dispatched the message to Meta, causing customer message duplication.
+  3. Client-side retries of `sendWhatsAppMessage` with the same `idempotencyKey` generated new message UUIDs that conflicted on the outbox table, leaving orphan `PENDING` records, while retries with the same `messageId` risked returning zero rows on conflict.
+  4. Stale `PROCESSING` events with exhausted retries remained stuck in `PROCESSING` indefinitely.
+- **Decision:**
+  1. **Unified Outbox Helper (`enqueueWhatsAppOutbound`):** Created a single shared transactional helper `enqueueWhatsAppOutbound(tx, context, input, idempotencyKey)` shared by direct WhatsApp sends, Smart Rules, and future AI dispatchers. All pathways emit exclusively `whatsapp.send_outbound`. Removed `whatsAppClient` and all inline provider calls from `executeRuleAction()` and `rule-runner.ts` so even tests strictly execute through the outbox pipeline.
+  2. **Elimination of Crash-After-Send Duplicate Window:** In `handleWhatsAppOutboundEvent()`, if `currentMsg.status === 'SENDING'` upon claiming an event, it signifies that an earlier worker crashed or abandoned its lease mid-flight. The message is immediately transitioned to `UNKNOWN` and a `TerminalOutboxError` is thrown, exhausting retries (`retry_count = max_retries`) and preventing duplicate delivery to the customer.
+  3. **Truthful Documentation of Crash-After-Send Recovery:** If a worker node crashes after Meta returns `200 OK` but before `wamid` is committed locally, the `wamid` is permanently lost from our local database. Therefore, subsequent status webhooks cannot be correlated by `wamid` automatically. Automatic reconciliation is NOT guaranteed in this specific post-accept crash window; manual review or provider log correlation is required.
+  4. **Database-Level API Idempotency (Migration 0017):** Added `idempotency_key VARCHAR(255)` and a partial unique index `idx_wa_msg_org_idempotency_key` on `whatsapp_messages (organization_id, idempotency_key) WHERE idempotency_key IS NOT NULL`. Calling `sendWhatsAppMessage` or `enqueueWhatsAppOutbound` with an existing `idempotencyKey` immediately returns the existing message record without creating duplicate outbox events or orphan records.
+  5. **Auto-Transition of Exhausted Stale Leases:** In `processPendingOutboxEvents()`, stale `PROCESSING` events (`processing_started_at < NOW() - INTERVAL '5 minutes'`) with `retry_count >= max_retries` are automatically transitioned to `status = 'FAILED'`, keeping database status accurate and clean for observability.
+- **Rationale:** Unifies automation and manual messaging under a single durable pipeline, eliminates customer duplicate messaging during worker crashes, ensures exact API idempotency without orphan records, and guarantees complete documentation integrity.
