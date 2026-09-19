@@ -10,6 +10,8 @@ import { parseMetaLeadData } from "./meta-lead-mapper.js";
 import { MetaLeadFetcher, DefaultMetaLeadFetcher } from "./meta-fetcher.js";
 import { findMetaIntegrationByPageId } from "./meta-integration-service.js";
 
+import { getDecryptedMetaIntegration } from "./credential-service.js";
+
 export interface IngestMetaLeadInput {
   pageId: string;
   leadgenId: string;
@@ -28,18 +30,12 @@ export async function ingestMetaLead(
   input: IngestMetaLeadInput,
 ): Promise<MetaIngestionResult> {
   return await withTenantContext(context.organizationId, async (tx) => {
-    // 1. Fetch integration configuration
-    const intRes = await tx.query(
-      `SELECT * FROM meta_integrations WHERE organization_id = $1 AND page_id = $2 AND is_active = true`,
-      [context.organizationId, input.pageId],
+    // 1. Fetch integration configuration with decrypted credentials
+    const integration = await getDecryptedMetaIntegration(
+      context,
+      input.pageId,
+      tx,
     );
-
-    if (intRes.rows.length === 0) {
-      throw new Error(
-        `No active Meta integration found for page [${input.pageId}] in this organization`,
-      );
-    }
-    const integration = intRes.rows[0];
 
     // 2. Idempotency check via webhook_events
     const eventRes = await tx.query(

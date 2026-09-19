@@ -36,22 +36,7 @@ describe("Phase 14: Marketing Attribution & Executive Dashboard Engine (Live Tes
   const campaignGoogle = `google_apts_${uniqueSuffix}`;
 
   beforeAll(async () => {
-    // 1. Apply Migration 0011
-    const migration11 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0011_attribution_and_dashboards.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration11);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (SODIC)
+    // 1. Setup Org A (SODIC)
     const ownerA = await registerUser({
       email: `owner.sodic.${uniqueSuffix}@sodic.local`,
       password: "StrongPassword2026!",

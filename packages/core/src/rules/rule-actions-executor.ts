@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
 import type { TenantContext, RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
+import { decryptSecret } from "../security/crypto-service.js";
 import {
   WhatsAppApiClient,
   DefaultWhatsAppApiClient,
@@ -335,15 +337,21 @@ export async function executeRuleAction(
 
         const integration = intRes.rows[0];
 
-        // 1. Transactional Outbox Enqueue (guarantees atomic commit before external network side effect)
-        const idempotencyKey = `wa_tpl_${context.organizationId}_${ruleId}_${entityId}_${Date.now()}`;
+        // 1. Transactional Outbox Enqueue (Deterministic Idempotency Key, Zero secrets in payload)
+        const idempotencyKey = crypto
+          .createHash("sha256")
+          .update(
+            `${context.organizationId}:${ruleId || "direct"}:${entityId}:${action.action_type}:${templateName}`,
+          )
+          .digest("hex");
+
         const outboxId = await enqueueOutboxEvent(
           tx,
           context,
           "WHATSAPP_SEND_TEMPLATE",
           {
+            integrationId: integration.id,
             phoneNumberId: integration.phone_number_id,
-            accessToken: integration.access_token,
             recipientPhone: String(entity.phone),
             templateName,
             languageCode,
@@ -355,9 +363,10 @@ export async function executeRuleAction(
 
         // 2. If dedicated WhatsApp client is provided (test/inline mode), execute and record
         if (options?.whatsAppClient) {
+          const decryptedToken = decryptSecret(integration.access_token);
           const sendRes = await options.whatsAppClient.sendTemplate(
             integration.phone_number_id,
-            integration.access_token,
+            decryptedToken,
             String(entity.phone),
             templateName,
             languageCode,

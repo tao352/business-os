@@ -230,3 +230,19 @@
   6. **Lua-Based Atomic Rate Limiting:** Converted multi-command rate limiting to single atomic Lua scripts and replaced blocking `KEYS` commands with non-blocking cursor `SCAN` in cache and rate-limiter sweeps.
   7. **Documentation Truthfulness Standards:** Explicitly demarcated all system features with truthfulness tags: `[IMPLEMENTED]`, `[PROTOTYPE]`, and `[PLANNED]`.
 - **Rationale:** Guarantees absolute enterprise tenant isolation, eliminates silent security vulnerabilities, prevents distributed race conditions, and ensures full transparency for engineering and stakeholders.
+
+---
+
+## ADR-017: H0-v2 Stabilization — Test Concurrency, On-Demand Secret Resolution, and Least-Privilege DB Roles
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Review of commit `b4a2fc7` revealed parallel CI worker race conditions, encrypted ciphertext leakage into API dispatchers, network calls trapped inside database transactions, outbox transaction lock losses, non-deterministic idempotency timestamps, and lack of runtime DB role hardening.
+- **Decision:**
+  1. **Vitest Global Setup Migration:** Moved sequential migration execution to `tests/global-setup.ts` running once before parallel worker threads spawn, eliminating all CI DDL race conditions.
+  2. **Central Decrypted Credential Service:** Built `credential-service.ts` to decrypt tokens on demand and decouple external HTTP dispatch (WhatsApp, Meta) strictly outside `withTenantContext` database transactions.
+  3. **Atomic Outbox CTE Claiming & Deterministic Idempotency:** Replaced fragmented `FOR UPDATE SKIP LOCKED` with an atomic Common Table Expression (`WITH claimable AS (...) UPDATE ... RETURNING *`) and deterministic SHA-256 keys based on rule/entity/action tuples.
+  4. **Platform Admin Feature Flag Guard:** Restricted `setFeatureFlag` strictly to `PlatformAdminContext` (`isPlatformAdmin: true`), rejecting tenant admins/owners.
+  5. **Honest Ops Console Access Control:** Removed false `success: true` stubs for unimplemented operational actions, raising explicit `NotImplementedError`.
+  6. **Database Runtime Role Hardening:** Applied migration `0014_h0_runtime_role_hardening.sql` enforcing `ALTER ROLE app_user NOBYPASSRLS`, revoking public schema `CREATE`, and restricting runtime application access to strict DML (`SELECT`, `INSERT`, `UPDATE`, `DELETE`).
+- **Rationale:** Completely stabilizes concurrent CI pipelines, prevents deadlocks and lock contention during outbound network calls, protects encrypted tokens from being transmitted as raw ciphertext, and enforces least-privilege security boundaries at the database engine level.

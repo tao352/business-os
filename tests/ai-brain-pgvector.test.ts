@@ -36,22 +36,7 @@ describe("Phase 13: AI Brain & Vector Knowledge Engine (pgvector RAG)", () => {
   let unitAId: string;
 
   beforeAll(async () => {
-    // 1. Apply Migration 0010 (pgvector & RAG tables)
-    const migration10 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0010_embeddings_and_rag.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration10);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (Palm Hills Developments)
+    // 1. Setup Org A (Palm Hills Developments)
     const ownerA = await registerUser({
       email: `owner.palmhills.${uniqueSuffix}@palmhills.local`,
       password: "StrongPassword2026!",

@@ -30,22 +30,7 @@ describe("Phase 9: Meta Lead Ads Ingestion Engine (Live Tests)", () => {
   const pageIdA = `page_emaar_${uniqueSuffix}`;
 
   beforeAll(async () => {
-    // 1. Apply Migration 0006
-    const migration6 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0006_integrations_and_webhooks.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration6);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (Emaar Misr)
+    // 1. Setup Org A (Emaar Misr)
     const userA = await registerUser({
       email: `emaar.${uniqueSuffix}@marassi.local`,
       password: "StrongPassword2026!",

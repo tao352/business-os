@@ -66,13 +66,21 @@ export async function processPendingOutboxEvents(
   let processed = 0;
   let failed = 0;
 
-  // 1. Fetch pending events
+  // 1. Atomically claim pending events using a CTE with FOR UPDATE SKIP LOCKED
   const events = await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
-      `SELECT * FROM outbox_events
-       WHERE organization_id = $1 AND status IN ('PENDING', 'FAILED') AND retry_count < max_retries
-       ORDER BY created_at ASC
-       LIMIT $2 FOR UPDATE SKIP LOCKED`,
+      `WITH claimable AS (
+        SELECT id FROM outbox_events
+        WHERE organization_id = $1 AND status IN ('PENDING', 'FAILED') AND retry_count < max_retries
+        ORDER BY created_at ASC
+        LIMIT $2
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE outbox_events o
+      SET status = 'PROCESSING', updated_at = NOW()
+      FROM claimable
+      WHERE o.id = claimable.id
+      RETURNING o.*`,
       [context.organizationId, limit],
     );
     return res.rows.map((r: any) => ({
@@ -101,15 +109,7 @@ export async function processPendingOutboxEvents(
     }
 
     try {
-      // Mark as PROCESSING
-      await withTenantContext(context.organizationId, async (tx) => {
-        await tx.query(
-          `UPDATE outbox_events SET status = 'PROCESSING', updated_at = NOW() WHERE id = $1`,
-          [event.id],
-        );
-      });
-
-      // Execute side effect (NETWORK CALL OUTSIDE TRANSACTION)
+      // Execute side effect (NETWORK CALL STRICTLY OUTSIDE DATABASE TRANSACTION)
       await handler(event.payload);
 
       // Mark COMPLETED

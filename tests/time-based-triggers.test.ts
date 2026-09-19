@@ -36,22 +36,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
   let futureTaskId: string;
 
   beforeAll(async () => {
-    // 1. Apply Migration 0009
-    const migration9 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0009_scheduled_jobs.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration9);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (Orascom Development)
+    // 1. Setup Org A (Orascom Development)
     const ownerA = await registerUser({
       email: `owner.orascom.${uniqueSuffix}@orascom.local`,
       password: "StrongPassword2026!",

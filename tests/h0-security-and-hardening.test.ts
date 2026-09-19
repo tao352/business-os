@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
-import { pool, withTenantContext } from "../packages/database/src/index.js";
+import {
+  pool,
+  withTenantContext,
+  Client,
+} from "../packages/database/src/index.js";
 import {
   runPendingMigrations,
   verifyMigrationIntegrity,
@@ -49,14 +53,7 @@ describe("H0 Foundation Audit & Hardening Regression Test Suite", () => {
   let contextBAdmin: TenantContext;
 
   beforeAll(async () => {
-    // 1. Ensure migrations are up to date and verified
-    const migrationResult = await runPendingMigrations();
-    expect(migrationResult.applied.length).toBeGreaterThanOrEqual(0);
-
-    const integrity = await verifyMigrationIntegrity();
-    expect(integrity.valid).toBe(true);
-
-    // 2. Set up two test organizations and users in the database
+    // 1. Set up two test organizations and users in the database
     const client = await pool.connect();
     try {
       const orgARes = await client.query(
@@ -434,6 +431,35 @@ describe("H0 Foundation Audit & Hardening Regression Test Suite", () => {
 
       expect(allowedCount).toBe(5);
       expect(blockedCount).toBe(5);
+    });
+  });
+
+  describe("H0-21: Runtime Role Hardening & Least Privilege", () => {
+    it("should ensure app_user has NOBYPASSRLS and no superuser privileges", async () => {
+      const res = await pool.query(
+        "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_user'",
+      );
+      expect(res.rows.length).toBe(1);
+      expect(res.rows[0].rolsuper).toBe(false);
+      expect(res.rows[0].rolbypassrls).toBe(false);
+    });
+
+    it("should prevent app_user from executing DDL operations on public schema", async () => {
+      const appClient = new Client({
+        connectionString:
+          process.env.APP_DATABASE_URL ||
+          "postgres://app_user:app_password@localhost:5432/business_os",
+      });
+      await appClient.connect();
+      try {
+        await expect(
+          appClient.query(
+            "CREATE TABLE public.test_forbidden_ddl (id serial primary key)",
+          ),
+        ).rejects.toThrow(/permission denied/i);
+      } finally {
+        await appClient.end();
+      }
     });
   });
 });

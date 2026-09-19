@@ -14,6 +14,8 @@ import {
 } from "./whatsapp-client.js";
 import { findWhatsAppIntegrationByPhoneNumberId } from "./whatsapp-integration-service.js";
 
+import { getDecryptedWhatsAppIntegration } from "../integrations/credential-service.js";
+
 export interface ProcessWebhookResult {
   messagesProcessed: number;
   statusesUpdated: number;
@@ -23,6 +25,7 @@ export interface ProcessWebhookResult {
 
 /**
  * Sends an outbound WhatsApp message (Template or Free-form text) to a lead/contact.
+ * Network dispatch occurs strictly outside database transactions to eliminate distributed failure loops.
  */
 export async function sendWhatsAppMessage(
   context: TenantContext,
@@ -31,51 +34,43 @@ export async function sendWhatsAppMessage(
 ): Promise<WhatsAppMessageRecord> {
   const apiClient = client || new DefaultWhatsAppApiClient();
 
-  return await withTenantContext(context.organizationId, async (tx) => {
-    // 1. Fetch Integration
-    const intRes = await tx.query(
-      `SELECT * FROM whatsapp_integrations
-       WHERE organization_id = $1 AND phone_number_id = $2 AND is_active = true`,
-      [context.organizationId, input.phoneNumberId],
+  // 1. Fetch Integration credentials with decrypted token (Read outside transaction)
+  const integration = await getDecryptedWhatsAppIntegration(
+    context,
+    input.phoneNumberId,
+  );
+
+  // 2. Dispatch via API Client (NETWORK CALL STRICTLY OUTSIDE DATABASE TRANSACTION)
+  let wamid: string;
+  let messageType: "template" | "text";
+  let bodyText: string;
+
+  if ("templateName" in input) {
+    messageType = "template";
+    bodyText = `Template: ${input.templateName}`;
+    const res = await apiClient.sendTemplate(
+      input.phoneNumberId,
+      integration.access_token,
+      input.recipientPhone,
+      input.templateName,
+      input.languageCode || "en",
+      input.variables,
     );
+    wamid = res.wamid;
+  } else {
+    messageType = "text";
+    bodyText = input.text;
+    const res = await apiClient.sendText(
+      input.phoneNumberId,
+      integration.access_token,
+      input.recipientPhone,
+      input.text,
+    );
+    wamid = res.wamid;
+  }
 
-    if (intRes.rows.length === 0) {
-      throw new Error(
-        `No active WhatsApp integration found for phone_number_id [${input.phoneNumberId}]`,
-      );
-    }
-    const integration = intRes.rows[0];
-
-    // 2. Dispatch via API Client
-    let wamid: string;
-    let messageType: "template" | "text";
-    let bodyText: string;
-
-    if ("templateName" in input) {
-      messageType = "template";
-      bodyText = `Template: ${input.templateName}`;
-      const res = await apiClient.sendTemplate(
-        input.phoneNumberId,
-        integration.access_token,
-        input.recipientPhone,
-        input.templateName,
-        input.languageCode || "en",
-        input.variables,
-      );
-      wamid = res.wamid;
-    } else {
-      messageType = "text";
-      bodyText = input.text;
-      const res = await apiClient.sendText(
-        input.phoneNumberId,
-        integration.access_token,
-        input.recipientPhone,
-        input.text,
-      );
-      wamid = res.wamid;
-    }
-
-    // 3. Insert into whatsapp_messages
+  // 3. Persist sent message record and timeline activity in an atomic database transaction
+  return await withTenantContext(context.organizationId, async (tx) => {
     const msgRes = await tx.query(
       `INSERT INTO whatsapp_messages (
         organization_id, wamid, lead_id, direction, sender_phone,
@@ -86,7 +81,7 @@ export async function sendWhatsAppMessage(
         context.organizationId,
         wamid,
         input.leadId || null,
-        integration.phone_number || input.phoneNumberId,
+        integration.display_phone_number || input.phoneNumberId,
         input.recipientPhone,
         messageType,
         bodyText,

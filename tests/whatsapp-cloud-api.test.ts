@@ -35,22 +35,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
   beforeAll(async () => {
     mockClient = new MockWhatsAppApiClient();
 
-    // 1. Apply Migration 0008
-    const migration8 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0008_whatsapp_integration.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration8);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (Al Futtaim)
+    // 1. Setup Org A (Al Futtaim)
     const ownerA = await registerUser({
       email: `owner.futtaim.${uniqueSuffix}@futtaim.local`,
       password: "StrongPassword2026!",

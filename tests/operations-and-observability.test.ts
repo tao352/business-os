@@ -14,6 +14,8 @@ import {
   listTenantIncidents,
   resolveTenantIncident,
   executeSafeOpsAction,
+  PlatformAuthorizationError,
+  NotImplementedError,
 } from "../packages/core/src/ops/index.js";
 
 describe("Phase 17: Operations, Observability & Feature Flags", () => {
@@ -60,14 +62,35 @@ describe("Phase 17: Operations, Observability & Feature Flags", () => {
     };
   });
 
-  describe("1. Feature Flags Engine (Global, Tenant Targeting & Percentage)", () => {
+  describe("1. Dynamic Feature Flags Engine", () => {
+    const platformAdminContext = {
+      isPlatformAdmin: true as const,
+      adminId: "super_admin_ops",
+    };
+
+    it("should reject tenant admins/owners from mutating platform feature flags", async () => {
+      await expect(
+        setFeatureFlag(
+          {
+            key: `flag_unauthorized_${uniqueSuffix}`,
+            name: "Unauthorized Flag",
+            enabled_globally: true,
+          },
+          orgAContext,
+        ),
+      ).rejects.toThrow(PlatformAuthorizationError);
+    });
+
     it("should correctly evaluate globally enabled feature flag", async () => {
       const flagKey = `flag_global_${uniqueSuffix}`;
-      await setFeatureFlag({
-        key: flagKey,
-        name: "Global New Feature",
-        enabled_globally: true,
-      });
+      await setFeatureFlag(
+        {
+          key: flagKey,
+          name: "Global New Feature",
+          enabled_globally: true,
+        },
+        platformAdminContext,
+      );
 
       const enabledForA = await isFeatureEnabled(flagKey, orgAContext);
       const enabledForB = await isFeatureEnabled(flagKey, orgBContext);
@@ -80,12 +103,15 @@ describe("Phase 17: Operations, Observability & Feature Flags", () => {
 
     it("should correctly target specific tenants and exclude others", async () => {
       const flagKey = `flag_tenant_specific_${uniqueSuffix}`;
-      await setFeatureFlag({
-        key: flagKey,
-        name: "Tenant Targeted Feature",
-        enabled_globally: false,
-        target_tenants: [orgAContext.organizationId],
-      });
+      await setFeatureFlag(
+        {
+          key: flagKey,
+          name: "Tenant Targeted Feature",
+          enabled_globally: false,
+          target_tenants: [orgAContext.organizationId],
+        },
+        platformAdminContext,
+      );
 
       const enabledForA = await isFeatureEnabled(flagKey, orgAContext);
       const enabledForB = await isFeatureEnabled(flagKey, orgBContext);
@@ -187,29 +213,36 @@ describe("Phase 17: Operations, Observability & Feature Flags", () => {
     it("should enforce 3-tier operational access levels (OBSERVE vs SAFE_OPS vs BREAK_GLASS)", async () => {
       // 1. Level OBSERVE cannot execute mutating actions
       await expect(
-        executeSafeOpsAction("RETRY_JOB", { jobId: "123" }, "OBSERVE"),
+        executeSafeOpsAction("CLEAR_APPROVED_CACHE", {}, "OBSERVE"),
       ).rejects.toThrow(/Access level 'OBSERVE' is read-only/);
 
-      // 2. Level SAFE_OPS allows standard operational actions
+      // 2. Level SAFE_OPS allows implemented operational actions like CLEAR_APPROVED_CACHE
       const safeResult = await executeSafeOpsAction(
-        "RETRY_JOB",
-        { jobId: "job_456" },
+        "CLEAR_APPROVED_CACHE",
+        {},
         "SAFE_OPS",
       );
       expect(safeResult.success).toBe(true);
+      expect(safeResult.action).toBe("CLEAR_APPROVED_CACHE");
 
-      // 3. Level SAFE_OPS is rejected for EMERGENCY_REPAIR (requires BREAK_GLASS)
+      // 3. Planned actions like RETRY_JOB throw NotImplementedError rather than falsely succeeding
+      await expect(
+        executeSafeOpsAction("RETRY_JOB", { jobId: "job_456" }, "SAFE_OPS"),
+      ).rejects.toThrow(NotImplementedError);
+
+      // 4. Level SAFE_OPS is rejected for EMERGENCY_REPAIR (requires BREAK_GLASS)
       await expect(
         executeSafeOpsAction("EMERGENCY_REPAIR", { dbFix: true }, "SAFE_OPS"),
       ).rejects.toThrow(/requires 'BREAK_GLASS' emergency authorization/);
 
-      // 4. Level BREAK_GLASS allows EMERGENCY_REPAIR
-      const emergencyResult = await executeSafeOpsAction(
-        "EMERGENCY_REPAIR",
-        { dbFix: true },
-        "BREAK_GLASS",
-      );
-      expect(emergencyResult.success).toBe(true);
+      // 5. Level BREAK_GLASS on EMERGENCY_REPAIR throws NotImplementedError until implemented
+      await expect(
+        executeSafeOpsAction(
+          "EMERGENCY_REPAIR",
+          { dbFix: true },
+          "BREAK_GLASS",
+        ),
+      ).rejects.toThrow(NotImplementedError);
     });
   });
 });

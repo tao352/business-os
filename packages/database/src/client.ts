@@ -1,7 +1,8 @@
 import pg from "pg";
 import { logger } from "@business-os/logger";
 
-const { Pool } = pg;
+const { Pool, Client } = pg;
+export { Pool, Client };
 
 const databaseUrl =
   process.env.DATABASE_URL ||

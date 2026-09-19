@@ -4,8 +4,8 @@
 
 The Business Operating System is structured as a modular TypeScript monorepo deployed via containerized services:
 
-1. **Client / Web Application (`apps/web`):** [IMPLEMENTED]
-   - Next.js 15 App Router, React 19, TypeScript, and Tailwind CSS.
+1. **Client / Web Application (`apps/web`):** [PLANNED]
+   - Planned Next.js 15 App Router, React 19, TypeScript, and Tailwind CSS.
    - High-density, accessible, anti-slop business interfaces adhering to the Taste-Skill standard.
    - Communicates with backend via type-safe Server Actions and REST API routes.
 2. **Core Domain & Security Layer (`packages/core`):** [IMPLEMENTED]
@@ -13,10 +13,12 @@ The Business Operating System is structured as a modular TypeScript monorepo dep
    - Metadata engine (`custom_field_definitions` + JSONB `custom_data`), Zod dynamic compilation.
    - Smart Rules (Trigger-Condition-Action) evaluation engine with loop prevention.
    - AES-256-GCM authenticated encryption at rest for third-party credentials.
+   - Centralized credential decryption service (`credential-service.ts`) resolving on-demand secrets outside DB transactions.
    - Atomic sliding-window rate limiting with Lua scripts and non-blocking `SCAN` cache.
-3. **Background Worker Cluster (`apps/worker`):** [IMPLEMENTED]
-   - Built on Node.js and BullMQ backed by Redis 7.
-   - Transactional Outbox processor (`outbox_events`) for reliable third-party dispatch (WhatsApp, webhooks).
+   - Transactional Outbox processor (`outbox-service.ts`) with atomic `SKIP LOCKED` CTE claiming and deterministic SHA-256 idempotency.
+3. **Background Worker Cluster (`apps/worker`):** [PLANNED]
+   - Planned standalone Node.js daemon running BullMQ backed by Redis 7.
+   - Runtime outbox polling and processing engine is currently implemented in `packages/core/src/rules/outbox-service.ts`.
    - Inbound webhook deduplication (Meta Lead Ads, WhatsApp Cloud API) with HMAC-SHA256 verification.
    - Scheduled SLA escalation scanners and batch import/export workers.
 4. **AI Capabilities & Intelligence:**
@@ -35,8 +37,8 @@ The Business Operating System is structured as a modular TypeScript monorepo dep
 
 ## 2. Directory Responsibilities
 
-- `/apps/web`: Frontend application and tenant workspace [IMPLEMENTED].
-- `/apps/worker`: BullMQ background job processor, outbox dispatcher, and cron scheduler [IMPLEMENTED].
+- `/apps/web`: Planned frontend Next.js application and tenant workspace [PLANNED].
+- `/apps/worker`: Planned standalone background job daemon [PLANNED]. (Core outbox and worker engines are in `/packages/core` [IMPLEMENTED]).
 - `/packages/types`: Shared TypeScript interfaces, entity models, and Zod schemas [IMPLEMENTED].
 - `/packages/database`: PostgreSQL schema, RLS policies, composite FK migrations, and migration runner [IMPLEMENTED].
 - `/packages/core`: Core domain logic, crypto, rate limiting, and business services [IMPLEMENTED].

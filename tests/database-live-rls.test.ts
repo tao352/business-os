@@ -4,36 +4,6 @@ import path from "node:path";
 import { pool, withTenantContext } from "../packages/database/src/index.js";
 
 describe("Live PostgreSQL Engine & RLS Verification", () => {
-  beforeAll(async () => {
-    // Apply migration files to ensure database is in expected state
-    const migration1 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0001_initial_extensions.sql",
-      ),
-      "utf-8",
-    );
-    const migration2 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0002_core_schema.sql",
-      ),
-      "utf-8",
-    );
-
-    const client = await pool.connect();
-    try {
-      await client.query(migration1);
-      await client.query(migration2);
-    } finally {
-      client.release();
-    }
-  });
-
-  afterAll(async () => {
-    await pool.end();
-  });
-
   it("verifies that required extensions are active in PostgreSQL", async () => {
     const client = await pool.connect();
     try {
