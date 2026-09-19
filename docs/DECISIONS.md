@@ -88,4 +88,3 @@
   4. Two-way messages append in real-time to the lead's activity timeline (`activity_type = 'WHATSAPP'`).
   5. Connect Smart Rules automation engine to dispatch pre-approved Meta message templates via action `whatsapp.send_template`.
 - **Rationale:** Eliminates number banning risk, guarantees 99.9% uptime, provides clean two-way customer messaging history, and automates instant outreach upon lead creation.
-

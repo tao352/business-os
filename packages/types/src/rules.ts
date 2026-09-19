@@ -118,3 +118,22 @@ export interface DryRunResult {
     description: string;
   }>;
 }
+
+export interface ScheduledJobRecord {
+  id: string;
+  organizationId: string;
+  jobType: string;
+  entitiesEvaluated: number;
+  rulesTriggered: number;
+  status: "COMPLETED" | "FAILED" | "PARTIAL";
+  errorMessage?: string | null;
+  startedAt: Date | string;
+  completedAt?: Date | string | null;
+}
+
+export interface TimeTriggerEvaluationResult {
+  jobType: string;
+  entitiesEvaluated: number;
+  rulesTriggered: number;
+  details: Array<{ entityId: string; rulesFiredCount: number }>;
+}
