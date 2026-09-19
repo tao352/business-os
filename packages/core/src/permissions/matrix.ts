@@ -15,6 +15,7 @@ export const ALL_RESOURCES: Resource[] = [
   "custom_field",
   "audit_log",
   "report",
+  "knowledge",
 ];
 
 export const ALL_ACTIONS: Action[] = [
@@ -65,6 +66,7 @@ export const ROLE_PERMISSIONS: RolePermissionMap = {
     custom_field: ["create", "read", "read_all", "update", "delete", "manage"],
     audit_log: ["read", "read_all", "export"],
     report: ["read", "read_all", "export"],
+    knowledge: ["create", "read", "read_all", "update", "delete", "manage"],
   },
 
   ADMIN: {
@@ -98,6 +100,7 @@ export const ROLE_PERMISSIONS: RolePermissionMap = {
     custom_field: ["create", "read", "read_all", "update", "delete", "manage"],
     audit_log: ["read", "read_all", "export"],
     report: ["read", "read_all", "export"],
+    knowledge: ["create", "read", "read_all", "update", "delete", "manage"],
   },
 
   SALES_MANAGER: {
@@ -108,6 +111,7 @@ export const ROLE_PERMISSIONS: RolePermissionMap = {
     reservation: ["create", "read", "read_all", "update"],
     report: ["read", "read_all", "export"],
     member: ["read", "read_all"],
+    knowledge: ["create", "read", "read_all", "update"],
   },
 
   SALESPERSON: {
@@ -116,6 +120,7 @@ export const ROLE_PERMISSIONS: RolePermissionMap = {
     project: ["read", "read_all"],
     reservation: ["create", "read"], // only assigned
     report: ["read"],
+    knowledge: ["read", "read_all"],
   },
 
   MARKETING_MANAGER: {
@@ -124,6 +129,7 @@ export const ROLE_PERMISSIONS: RolePermissionMap = {
     report: ["read", "read_all", "export"],
     unit: ["read", "read_all"],
     project: ["read", "read_all"],
+    knowledge: ["create", "read", "read_all", "update"],
   },
 
   MARKETING_USER: {
@@ -155,5 +161,6 @@ export const ROLE_PERMISSIONS: RolePermissionMap = {
     contract: ["read", "read_all"],
     reservation: ["read", "read_all"],
     report: ["read", "read_all"],
+    knowledge: ["read", "read_all"],
   },
 };

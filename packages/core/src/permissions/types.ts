@@ -13,7 +13,8 @@ export type Resource =
   | "smart_rule"
   | "custom_field"
   | "audit_log"
-  | "report";
+  | "report"
+  | "knowledge";
 
 export type Action =
   | "create"

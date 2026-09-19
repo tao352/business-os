@@ -88,3 +88,30 @@
   4. Two-way messages append in real-time to the lead's activity timeline (`activity_type = 'WHATSAPP'`).
   5. Connect Smart Rules automation engine to dispatch pre-approved Meta message templates via action `whatsapp.send_template`.
 - **Rationale:** Eliminates number banning risk, guarantees 99.9% uptime, provides clean two-way customer messaging history, and automates instant outreach upon lead creation.
+
+---
+
+## ADR-007: Time-Based Triggers, Inactivity SLA Escalations, and Scheduled Job Auditing
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** Sales leads often go cold if not followed up within strict SLA windows (e.g. 24 hours), unit reservations expire without alerts, and overdue tasks linger uncompleted. The system required automated time-based scanning without introducing heavyweight cron infrastructure.
+- **Decision:**
+  1. Build modular tenant-scoped time scanners: `scanInactivityExceededLeads`, `scanExpiringReservations`, and `scanDueTasks`.
+  2. Integrate scanners directly with the Smart Rules engine so time events trigger `lead.inactivity_exceeded`, `reservation.expiring`, and `task.due` triggers.
+  3. Record every scanner run in an RLS-protected `scheduled_job_runs` table with run duration, entities evaluated, rules triggered, and completion status.
+- **Rationale:** Maintains sales team SLA accountability, releases held inventory when reservations expire, and provides complete execution auditability without external cron complexity.
+
+---
+
+## ADR-008: AI Brain Knowledge Retrieval Engine with pgvector and Hybrid RAG Context
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** An AI-Configurable Business Operating System requires grounding LLM responses in company knowledge (policies, brochures, FAQs) as well as live operational CRM data (unit availability, pricing, lead state).
+- **Decision:**
+  1. Use PostgreSQL native `pgvector` extension with 1536-dimensional vector embeddings and HNSW cosine distance indexing (`vector_cosine_ops`).
+  2. Store parent documents in `knowledge_documents` and semantic segments in `document_chunks`, strictly protected with Row-Level Security (RLS) guaranteeing zero multi-tenant vector leakage.
+  3. Implement boundary-aware sliding-window chunking (`chunkText`) and a deterministic unit-normalized embedding provider for offline CI.
+  4. Implement `retrieveGroundedContext` combining vector similarity matches with real-time live CRM entity records (Leads and Units) for grounded RAG.
+- **Rationale:** Prevents hallucination, guarantees absolute multi-tenant vector isolation, and provides schema-grounded context combining static knowledge with live CRM operational status.

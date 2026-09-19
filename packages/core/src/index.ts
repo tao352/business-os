@@ -10,3 +10,4 @@ export * from "./import-export/index.js";
 export * from "./integrations/index.js";
 export * from "./rules/index.js";
 export * from "./whatsapp/index.js";
+export * from "./ai/index.js";
