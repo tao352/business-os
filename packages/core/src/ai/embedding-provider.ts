@@ -59,11 +59,24 @@ export class DeterministicEmbeddingProvider implements EmbeddingProvider {
   }
 
   private tokenize(text: string): string[] {
-    return text
+    const rawTokens = text
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
       .filter((t) => t.length > 0);
+
+    const normalizedTokens: string[] = [];
+    for (const raw of rawTokens) {
+      normalizedTokens.push(raw);
+      // Strip common Arabic prefixes (ال التعريف، واو العطف، باء الجر، إلخ)
+      const stripped = raw
+        .replace(/^(وال|فال|بال|كال|ولل|ال)/, "")
+        .replace(/^[وبفلك]/, "");
+      if (stripped.length >= 3 && stripped !== raw) {
+        normalizedTokens.push(stripped);
+      }
+    }
+    return normalizedTokens;
   }
 
   private hashString(str: string): number {

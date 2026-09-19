@@ -115,3 +115,44 @@
   3. Implement boundary-aware sliding-window chunking (`chunkText`) and a deterministic unit-normalized embedding provider for offline CI.
   4. Implement `retrieveGroundedContext` combining vector similarity matches with real-time live CRM entity records (Leads and Units) for grounded RAG.
 - **Rationale:** Prevents hallucination, guarantees absolute multi-tenant vector isolation, and provides schema-grounded context combining static knowledge with live CRM operational status.
+
+---
+
+## ADR-009: Marketing Attribution & Real Estate Executive Dashboards
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** Real estate operations require tracking campaign ad spend against signed contract revenue, computing lead-to-deal conversion velocity, and visualizing executive KPIs without expensive BI tools.
+- **Decision:**
+  1. Introduce `campaign_spend_logs` with multi-tenant RLS for tracking daily/monthly spend per marketing channel and campaign.
+  2. Implement multi-touch attribution models: First-Touch (lead acquisition credit) and Last-Touch (contract closing credit).
+  3. Implement `getExecutiveDashboardMetrics` aggregating sales velocity, active pipeline volume, closed revenue, CAC, and channel-by-channel ROI.
+- **Rationale:** Provides leadership with real-time financial clarity, CAC and ROI metrics, and closed-loop marketing attribution directly within tenant boundaries.
+
+---
+
+## ADR-010: "Ask Your Business" Safe Text-to-SQL & Real Estate Schema Catalog
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** Business users need natural language querying ("كم عدد الليدات الجديدة اليوم؟", "ما إجمالي مبيعات مشروع الجونة؟") without exposing the system to SQL injection, destructive queries, or cross-tenant data leaks.
+- **Decision:**
+  1. Build a strict AST/regex `QuerySafetyGuard` that enforces read-only SELECT queries, rejects destructive DDL/DML, multi-statement queries, and system catalog access.
+  2. Map conversational queries against a strongly typed Real Estate Schema Catalog and Intent Synthesizer.
+  3. Execute safe queries strictly within `withTenantContext(organizationId, ...)` ensuring Postgres RLS applies even if an attacker crafts an adversarial query.
+  4. Combine structured query execution with vector knowledge retrieval for hybrid answers.
+- **Rationale:** Enables non-technical users to query their business data naturally while guaranteeing absolute query safety and zero multi-tenant data leakage.
+
+---
+
+## ADR-011: AI Builder - Safe Configuration Assistant via Reversible Change Proposals
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** Users want to configure custom fields, automation rules, and saved views using natural language prompts without violating AGENTS.md Invariants 3.2 (no dynamic ALTER TABLE DDL) and 3.3 (no customer-exposed code).
+- **Decision:**
+  1. Structure all natural language modifications into a two-step human-in-the-loop workflow: `parseConfigurationIntent` produces an inspectable `ChangeProposal` with a preview diff.
+  2. Application (`applyChangeProposal`) checks permissions via `assertPermission(context, 'create', resource)` and routes to metadata/domain services (`createCustomFieldDefinition`, `createRule`, `createSavedView`).
+  3. Custom fields are stored in `custom_field_definitions` and populated in `custom_data` JSONB columns, never modifying physical table schemas.
+  4. Custom field keys are sanitized to valid ASCII identifiers via transliteration and safe deterministic hashing.
+- **Rationale:** Delivers seamless AI-driven customization with complete transparency, role-based safety, zero risk of schema corruption, and full tenant isolation.

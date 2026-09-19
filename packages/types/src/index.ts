@@ -8,3 +8,6 @@ export * from "./import-export.js";
 export * from "./integrations.js";
 export * from "./whatsapp.js";
 export * from "./ai-brain.js";
+export * from "./analytics.js";
+export * from "./ai-query.js";
+export * from "./ai-builder.js";
