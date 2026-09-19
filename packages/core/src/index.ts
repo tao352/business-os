@@ -5,3 +5,4 @@ export * from './crm/index.js';
 export * from './metadata/index.js';
 export * from './query/index.js';
 export * from './views/index.js';
+export * from './real-estate/index.js';
