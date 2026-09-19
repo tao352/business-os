@@ -20,6 +20,7 @@
     "@business-os/database": "workspace:*",
     "@business-os/logger": "workspace:*",
     "@business-os/types": "workspace:*",
+    "ioredis": "^6.0.0",
     "jose": "^6.0.8",
     "zod": "^3.24.2"
   },

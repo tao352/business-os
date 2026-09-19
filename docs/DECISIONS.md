@@ -200,3 +200,16 @@
   2. Build a high-fidelity Egyptian real estate seed generator (`seedPilotRealEstateData`) seeding major projects (Taj City, Sarai), diverse unit inventory with EGP pricing, realistic leads, round-robin automation rules, and standard 8-year payment schedules.
   3. Validate the complete end-to-end commercial lifecycle (lead ingestion -> round-robin assignment -> unit reservation -> contract execution -> revenue attribution -> executive dashboard) with 100% tenant isolation.
 - **Rationale:** Provides an out-of-the-box turnkey experience for prospective real estate clients, accelerates pilot go-lives, and continuously verifies multi-tenant isolation against live commercial data.
+
+---
+
+## ADR-015: Sliding-Window Rate Limiting and Keyspace-Isolated Tenant Caching
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED
+- **Context:** As the platform transitions to production and connects to the user-facing web client, it requires strict protection against brute-force attacks, API quota exhaustion, and unconstrained database queries, while preserving absolute tenant isolation (Rule 3.1).
+- **Decision:**
+  1. Implement a distributed sliding-window counter rate limiter in `@business-os/core` (`consumeRateLimit`, `checkRateLimit`, `resetRateLimit`) supporting IP keys (`rl:ip:{ip}`) for public endpoints and webhook ingress, and Tenant keys (`rl:tenant:{orgId}:{quota}`) for AI generation and API tiers, with seamless in-memory fallback.
+  2. Implement a strictly isolated multi-tenant caching layer (`withTenantCache`, `getTenantCache`, `setTenantCache`, `invalidateTenantCache`) enforcing the mandatory keyspace pattern `tenant:{organizationId}:{namespace}:{key}`.
+  3. Prohibit cross-tenant cache access, contamination, or wildcard invalidation, with cryptographic tenant verification before returning or invalidating cached payloads.
+- **Rationale:** Prevents denial-of-service and noisy-neighbor issues across tenants, minimizes database load on frequent query endpoints, and ensures zero data leakage in shared Redis cache instances.

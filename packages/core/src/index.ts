@@ -14,3 +14,5 @@ export * from "./ai/index.js";
 export * from "./analytics/index.js";
 export * from "./ops/index.js";
 export * from "./pilot/index.js";
+export * from "./security/index.js";
+export * from "./cache/index.js";
