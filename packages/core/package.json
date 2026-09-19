@@ -17,8 +17,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@business-os/database": "workspace:*",
     "@business-os/logger": "workspace:*",
-    "@business-os/types": "workspace:*"
+    "@business-os/types": "workspace:*",
+    "jose": "^6.0.8"
   },
   "devDependencies": {
     "typescript": "^5.8.2"
