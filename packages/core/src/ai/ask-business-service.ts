@@ -5,19 +5,29 @@ import type {
   AskBusinessInput,
   AskBusinessResponse,
   EmbeddingProvider,
+  StructuredQueryIntent,
 } from "@business-os/types";
-import { assertSafeReadOnlySql } from "./query-safety-guard.js";
+import {
+  assertSafeReadOnlySql,
+  compileStructuredIntentToSql,
+  UnsupportedQueryError,
+} from "./query-safety-guard.js";
 import { generateSqlForQuestion } from "./schema-catalog.js";
 import { searchSimilarKnowledge } from "./knowledge-service.js";
 import { defaultEmbeddingProvider } from "./embedding-provider.js";
 
+export interface ExtendedAskBusinessInput extends AskBusinessInput {
+  intent?: StructuredQueryIntent;
+}
+
 /**
- * Ask Your Business: Natural language query engine combining schema-grounded
- * safe Text-to-SQL execution with vector knowledge base semantic search.
+ * Ask Your Business: Secure natural language and structured query engine.
+ * Never executes arbitrary AI-generated SQL strings. Strictly routes through
+ * validated schema catalogs or approved query compiler AST.
  */
 export async function askBusiness(
   context: TenantContext,
-  input: AskBusinessInput,
+  input: ExtendedAskBusinessInput,
   embeddingProvider: EmbeddingProvider = defaultEmbeddingProvider,
 ): Promise<AskBusinessResponse> {
   const startTime = Date.now();
@@ -26,43 +36,73 @@ export async function askBusiness(
   let sqlQuery: string | undefined;
   let dataRows: Record<string, unknown>[] | undefined;
   let answerText = "";
+  let resolvedIntent: StructuredQueryIntent | undefined = input.intent;
 
-  // 1. Check for Relational Query Plan (Text-to-SQL)
-  const sqlPlan = generateSqlForQuestion(question);
+  // 1. If explicit structured query intent is provided, compile via approved compiler
+  if (input.intent) {
+    try {
+      const compiled = compileStructuredIntentToSql(input.intent);
+      sqlQuery = compiled.sql;
+      assertSafeReadOnlySql(sqlQuery);
 
-  if (sqlPlan) {
-    sqlQuery = sqlPlan.sql;
-    assertSafeReadOnlySql(sqlQuery);
+      dataRows = await withTenantContext(context.organizationId, async (tx) => {
+        const res = await tx.query<Record<string, unknown>>(
+          compiled.sql,
+          compiled.params,
+        );
+        return res.rows;
+      });
 
-    dataRows = await withTenantContext(context.organizationId, async (tx) => {
-      const res = await tx.query<Record<string, unknown>>(sqlQuery!);
-      return res.rows;
-    });
+      answerText = `تم استرجاع ${dataRows.length} سجل بنجاح بناءً على معايير الاستعلام المحددة.`;
+    } catch (err) {
+      if (err instanceof UnsupportedQueryError) {
+        return {
+          question,
+          answerText: `الاستعلام المطلوب غير مدعوم أو يحتوي على حقول غير مصرح بها: ${err.message}`,
+          intentType: "UNSUPPORTED_QUERY",
+          executionTimeMs: Date.now() - startTime,
+        };
+      }
+      throw err;
+    }
+  } else {
+    // 2. Map known natural language questions via approved schema catalog
+    const sqlPlan = generateSqlForQuestion(question);
 
-    if (sqlPlan.intent === "UNITS_QUERY") {
-      const count = dataRows.length;
-      answerText =
-        count > 0
-          ? `يوجد حالياً ${count} وحدة متاحة مطابقة لطلبك في مشروعات الشركة.`
-          : "لا توجد وحدات متاحة مطابقة لمعايير البحث الحالية.";
-    } else if (sqlPlan.intent === "SALES_QUERY") {
-      const topCloser = dataRows[0];
-      answerText = topCloser
-        ? `أفضل مسؤول مبيعات هو ${topCloser["full_name"]} بإجمالي مبيعات ${topCloser["total_revenue"]} جنيه عبر ${topCloser["contracts_count"]} عقود.`
-        : "لا توجد بيانات مبيعات مسجلة بعد للفريق.";
-    } else if (sqlPlan.intent === "LEADS_QUERY") {
-      const total = dataRows.reduce(
-        (sum, r) => sum + Number(r["count"] || 0),
-        0,
-      );
-      answerText = `إجمالي عدد العملاء المحتملين المسجلين في المنظومة هو ${total} ليد موزعين على مراحل البيع.`;
-    } else if (sqlPlan.intent === "CONTRACTS_QUERY") {
-      const count = dataRows.length;
-      answerText = `تم العثور على ${count} عقود بيع مسجلة في قاعدة البيانات.`;
+    if (sqlPlan) {
+      sqlQuery = sqlPlan.sql;
+      assertSafeReadOnlySql(sqlQuery);
+
+      dataRows = await withTenantContext(context.organizationId, async (tx) => {
+        const res = await tx.query<Record<string, unknown>>(sqlQuery!);
+        return res.rows;
+      });
+
+      if (sqlPlan.intent === "UNITS_QUERY") {
+        const count = dataRows.length;
+        answerText =
+          count > 0
+            ? `يوجد حالياً ${count} وحدة متاحة مطابقة لطلبك في مشروعات الشركة.`
+            : "لا توجد وحدات متاحة مطابقة لمعايير البحث الحالية.";
+      } else if (sqlPlan.intent === "SALES_QUERY") {
+        const topCloser = dataRows[0];
+        answerText = topCloser
+          ? `أفضل مسؤول مبيعات هو ${topCloser["full_name"]} بإجمالي مبيعات ${topCloser["total_revenue"]} جنيه عبر ${topCloser["contracts_count"]} عقود.`
+          : "لا توجد بيانات مبيعات مسجلة بعد للفريق.";
+      } else if (sqlPlan.intent === "LEADS_QUERY") {
+        const total = dataRows.reduce(
+          (sum, r) => sum + Number(r["count"] || 0),
+          0,
+        );
+        answerText = `إجمالي عدد العملاء المحتملين المسجلين في المنظومة هو ${total} ليد موزعين على مراحل البيع.`;
+      } else if (sqlPlan.intent === "CONTRACTS_QUERY") {
+        const count = dataRows.length;
+        answerText = `تم العثور على ${count} عقود بيع مسجلة في قاعدة البيانات.`;
+      }
     }
   }
 
-  // 2. Check for Semantic Knowledge Matches (pgvector RAG)
+  // 3. Check for Semantic Knowledge Matches (pgvector RAG)
   const knowledgeResults = await searchSimilarKnowledge(
     context,
     {
@@ -79,7 +119,7 @@ export async function askBusiness(
     similarity: k.similarity,
   }));
 
-  // 3. Determine Intent Type & Final Synthesis
+  // 4. Determine Intent Type & Final Synthesis
   let intentType: AskBusinessResponse["intentType"] = "RELATIONAL_QUERY";
 
   if (sqlQuery && knowledgeMatches.length > 0) {
@@ -89,9 +129,9 @@ export async function askBusiness(
     intentType = "KNOWLEDGE_RETRIEVAL";
     answerText = `بناءً على وثائق ومعلومات الشركة: ${knowledgeMatches[0]?.content}`;
   } else if (!sqlQuery && knowledgeMatches.length === 0) {
-    intentType = "RELATIONAL_QUERY";
+    intentType = "UNSUPPORTED_QUERY";
     answerText =
-      "لم أتمكن من العثور على بيانات أو مستندات كافية للإجابة على هذا السؤال بدقة.";
+      "الاستعلام غير مدعوم في المسار المباشر، ولم أتمكن من العثور على وثائق كافية للإجابة بأمان.";
   }
 
   const executionTimeMs = Date.now() - startTime;
@@ -100,11 +140,11 @@ export async function askBusiness(
     {
       organizationId: context.organizationId,
       intentType,
-      executionTimeMs,
-      rowsCount: dataRows?.length ?? 0,
-      knowledgeCount: knowledgeMatches.length,
+      hasSql: !!sqlQuery,
+      knowledgeMatchesCount: knowledgeMatches.length,
+      durationMs: executionTimeMs,
     },
-    "Executed Ask Your Business query",
+    "AskBusiness processed query securely",
   );
 
   return {
@@ -112,6 +152,7 @@ export async function askBusiness(
     answerText,
     intentType,
     sqlQuery,
+    intent: resolvedIntent,
     data: dataRows,
     knowledgeMatches,
     executionTimeMs,

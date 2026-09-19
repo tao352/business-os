@@ -13,6 +13,8 @@ import {
   compileSortToSql,
   ENTITY_COLUMN_WHITELISTS,
 } from "./filter-compiler.js";
+import { assertPermission } from "../permissions/checker.js";
+import type { Resource } from "../permissions/types.js";
 
 export class UnsupportedEntityError extends Error {
   constructor(public readonly entityType: string) {
@@ -20,6 +22,16 @@ export class UnsupportedEntityError extends Error {
     this.name = "UnsupportedEntityError";
   }
 }
+
+const ENTITY_RESOURCE_MAP: Record<string, Resource> = {
+  leads: "lead",
+  units: "unit",
+  projects: "project",
+  deals: "lead",
+  contracts: "contract",
+  reservations: "reservation",
+  campaigns: "campaign",
+};
 
 export async function queryEntities<T extends Record<string, any>>(
   context: TenantContext,
@@ -29,6 +41,10 @@ export async function queryEntities<T extends Record<string, any>>(
   if (!ENTITY_COLUMN_WHITELISTS[entityType]) {
     throw new UnsupportedEntityError(entityType);
   }
+
+  // Enforce resource read permission
+  const resource = ENTITY_RESOURCE_MAP[entityType] || "lead";
+  assertPermission(context, "read", resource);
 
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const offset = Math.max(options.offset ?? 0, 0);
@@ -102,7 +118,19 @@ export async function queryEntities<T extends Record<string, any>>(
     `;
 
     const dataResult = await client.query<T>(dataSql, dataParams);
-    const data = dataResult.rows;
+    let data = dataResult.rows;
+
+    // Field-level PII protection: MARKETING_USER cannot see individual lead contact information
+    if (context.role === "MARKETING_USER" && entityType === "leads") {
+      data = data.map((row) => {
+        const sanitized = { ...row };
+        delete (sanitized as Record<string, unknown>).phone;
+        delete (sanitized as Record<string, unknown>).email;
+        delete (sanitized as Record<string, unknown>).full_name;
+        (sanitized as Record<string, unknown>).contact_info_redacted = true;
+        return sanitized;
+      });
+    }
 
     logger.info(
       {

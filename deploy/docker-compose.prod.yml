@@ -1,5 +1,9 @@
-# Production Docker Compose for Business OS (Coolify / Standalone VPS)
-# Architecture Constitution Section 1 & Master Plan Section 43
+# ==============================================================================
+# [FUTURE DEPLOYMENT SCAFFOLD - NOT CURRENTLY BUILDABLE AS FULL MONOLITH]
+# The 'app' and 'worker' service images defined below represent planned architectural
+# targets for when apps/web and apps/worker are implemented.
+# Database, Redis, and storage layers are functional; app/worker containers are deferred.
+# ==============================================================================
 
 services:
   app:

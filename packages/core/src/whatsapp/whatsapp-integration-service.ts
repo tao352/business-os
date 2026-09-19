@@ -5,15 +5,27 @@ import type {
   ConfigureWhatsAppInput,
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
+import {
+  encryptSecret,
+  decryptSecret,
+  maskSecret,
+} from "../security/crypto-service.js";
 
 /**
  * Saves or updates WhatsApp Business Account credentials for an organization.
+ * All sensitive API keys are encrypted at rest using AES-256-GCM.
  */
 export async function configureWhatsAppIntegration(
   context: TenantContext,
   input: ConfigureWhatsAppInput,
 ): Promise<WhatsAppIntegration> {
   assertPermission(context, "manage", "organization");
+
+  const encryptedAccessToken = encryptSecret(input.accessToken);
+  const encryptedAppSecret = input.appSecret
+    ? encryptSecret(input.appSecret)
+    : "";
+  const encryptedVerifyToken = encryptSecret(input.verifyToken);
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
@@ -35,9 +47,9 @@ export async function configureWhatsAppIntegration(
         input.phoneNumberId,
         input.wabaId,
         input.phoneNumber || null,
-        input.accessToken,
-        input.appSecret,
-        input.verifyToken,
+        encryptedAccessToken,
+        encryptedAppSecret,
+        encryptedVerifyToken,
         input.isActive ?? true,
       ],
     );
@@ -49,9 +61,9 @@ export async function configureWhatsAppIntegration(
       phoneNumberId: row.phone_number_id,
       wabaId: row.waba_id,
       phoneNumber: row.phone_number,
-      accessToken: row.access_token,
-      appSecret: row.app_secret,
-      verifyToken: row.verify_token,
+      accessToken: maskSecret(row.access_token),
+      appSecret: maskSecret(row.app_secret),
+      verifyToken: maskSecret(row.verify_token),
       isActive: row.is_active,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -60,7 +72,8 @@ export async function configureWhatsAppIntegration(
 }
 
 /**
- * Looks up an active WhatsApp integration by phone_number_id outside tenant context (pre-routing).
+ * Looks up an active WhatsApp integration by phone_number_id outside tenant context (pre-routing),
+ * decrypting credentials for outbound Graph API communication.
  */
 export async function findWhatsAppIntegrationByPhoneNumberId(
   phoneNumberId: string,
@@ -90,9 +103,9 @@ export async function findWhatsAppIntegrationByPhoneNumberId(
         phoneNumberId: row.phone_number_id,
         wabaId: row.waba_id,
         phoneNumber: row.phone_number,
-        accessToken: row.access_token,
-        appSecret: row.app_secret,
-        verifyToken: row.verify_token,
+        accessToken: decryptSecret(row.access_token),
+        appSecret: decryptSecret(row.app_secret),
+        verifyToken: decryptSecret(row.verify_token),
         isActive: row.is_active,
         createdAt: row.created_at,
         updatedAt: row.updated_at,

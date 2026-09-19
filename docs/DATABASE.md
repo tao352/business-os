@@ -37,12 +37,36 @@
 
 - `smart_rules`: Automation definitions (`id`, `organization_id`, `name`, `trigger_type`, `conditions`, `actions`, `safety_level`, `is_active`, `version`).
 - `audit_logs`: Tamper-evident event log (`id`, `organization_id`, `actor_id`, `actor_type`, `action`, `entity_type`, `entity_id`, `before_state`, `after_state`, `ip_address`, `created_at`).
+- `outbox_events`: Transactional outbox queue for reliable asynchronous event delivery (`id`, `organization_id`, `event_type`, `payload`, `status`, `attempts`, `idempotency_key`, `created_at`).
+- `schema_migrations`: Migration audit and SHA-256 verification log (`name`, `applied_at`, `checksum`).
 
 ---
 
-## 3. Database Indexes Strategy
+## 3. Relational Isolation & Composite Foreign Keys
+
+In addition to Row-Level Security (RLS), the database enforces relational tenant isolation at the engine schema level using **Composite Foreign Keys**:
+
+- Every core table has a composite unique constraint: `UNIQUE (organization_id, id)`.
+- All relational foreign keys enforce composite references: `FOREIGN KEY (organization_id, parent_id) REFERENCES parent_table(organization_id, id) ON DELETE CASCADE`.
+- This guarantees that an entity belonging to Organization A cannot reference an entity belonging to Organization B, even if an application defect attempts to do so.
+- Enforced across:
+  - `units (organization_id, project_id) -> projects (organization_id, id)`
+  - `visits (organization_id, lead_id) -> leads (organization_id, id)`
+  - `visits (organization_id, project_id) -> projects (organization_id, id)`
+  - `reservations (organization_id, lead_id) -> leads (organization_id, id)`
+  - `reservations (organization_id, unit_id) -> units (organization_id, id)`
+  - `contracts (organization_id, reservation_id) -> reservations (organization_id, id)`
+  - `deals (organization_id, lead_id) -> leads (organization_id, id)`
+  - `deals (organization_id, unit_id) -> units (organization_id, id)`
+  - `activities (organization_id, lead_id) -> leads (organization_id, id)`
+  - `tasks (organization_id, lead_id) -> leads (organization_id, id)`
+
+---
+
+## 4. Database Indexes Strategy
 
 - Foreign keys and tenant keys are strictly indexed: `(organization_id, id)`.
+- Composite foreign key pairs are indexed for high-performance join traversal: `(organization_id, parent_id)`.
 - Frequently queried JSONB keys (e.g. `budget` or `finishing_type`) are indexed via expression indexes:
   ```sql
   CREATE INDEX idx_leads_custom_budget ON leads ((custom_data->>'budget')) WHERE custom_data->>'budget' IS NOT NULL;

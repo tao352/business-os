@@ -182,14 +182,23 @@ export async function invalidateTenantCache(
   const client = getRedisClient();
   if (client && client.status === "ready") {
     try {
-      const keys = await client.keys(searchPattern);
-      if (keys.length > 0) {
-        // Enforce prefix verification on every key before deletion
-        const safeKeys = keys.filter((k: string) => k.startsWith(prefix));
-        if (safeKeys.length > 0) {
-          count = await client.del(...safeKeys);
+      let cursor = "0";
+      do {
+        const [nextCursor, keys] = await client.scan(
+          cursor,
+          "MATCH",
+          searchPattern,
+          "COUNT",
+          100,
+        );
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          const safeKeys = keys.filter((k: string) => k.startsWith(prefix));
+          if (safeKeys.length > 0) {
+            count += await client.del(...safeKeys);
+          }
         }
-      }
+      } while (cursor !== "0");
       return count;
     } catch (err) {
       logger.warn(
@@ -224,7 +233,7 @@ export async function invalidateTenantCache(
 }
 
 /**
- * Clears entire cache (used for test resets).
+ * Clears entire cache using non-blocking SCAN (used for test resets).
  */
 export async function clearAllTenantCaches(): Promise<void> {
   inMemoryCache.clear();
@@ -232,10 +241,20 @@ export async function clearAllTenantCaches(): Promise<void> {
   const client = getRedisClient();
   if (client && client.status === "ready") {
     try {
-      const keys = await client.keys("tenant:*");
-      if (keys.length > 0) {
-        await client.del(...keys);
-      }
+      let cursor = "0";
+      do {
+        const [nextCursor, keys] = await client.scan(
+          cursor,
+          "MATCH",
+          "tenant:*",
+          "COUNT",
+          100,
+        );
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          await client.del(...keys);
+        }
+      } while (cursor !== "0");
     } catch (err) {
       logger.warn(
         { error: err instanceof Error ? err.message : String(err) },

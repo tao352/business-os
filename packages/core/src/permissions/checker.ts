@@ -15,7 +15,11 @@ export function hasRolePermission(
   if (!resourcePermissions) {
     return false;
   }
-  return resourcePermissions.includes(action);
+  return (
+    resourcePermissions.includes(action) ||
+    (action === "read" && resourcePermissions.includes("read_all")) ||
+    (action === "update" && resourcePermissions.includes("update_all"))
+  );
 }
 
 /**

@@ -5,11 +5,24 @@ import type {
 } from "@business-os/types";
 import { queryEntities } from "../query/entity-query-service.js";
 import { generateCsv } from "./csv-parser.js";
+import { assertPermission } from "../permissions/checker.js";
+import type { Resource } from "../permissions/types.js";
 
 export async function exportEntitiesToCsv(
   context: TenantContext,
   options: ExportOptions,
 ): Promise<ExportResult> {
+  const resource = (
+    options.entityType === "leads"
+      ? "lead"
+      : options.entityType === "units"
+        ? "unit"
+        : options.entityType === "projects"
+          ? "project"
+          : "lead"
+  ) as Resource;
+  assertPermission(context, "export", resource);
+
   const delimiter = options.format === "TSV" ? "\t" : ",";
   const fileExt = options.format === "TSV" ? "tsv" : "csv";
 

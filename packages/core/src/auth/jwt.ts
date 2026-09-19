@@ -1,18 +1,12 @@
 import { SignJWT, jwtVerify } from "jose";
 import type { TenantRole } from "@business-os/types";
+import { getJwtSecret } from "../config/env.js";
 
 export interface TenantTokenPayload {
   userId: string;
   organizationId: string;
   role: TenantRole;
   email: string;
-}
-
-const DEFAULT_SECRET = "super-secret-jwt-signing-key-minimum-32-chars-for-dev";
-
-function getJwtSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET || DEFAULT_SECRET;
-  return new TextEncoder().encode(secret);
 }
 
 /**

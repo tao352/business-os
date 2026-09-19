@@ -5,15 +5,25 @@ import type {
   ConfigureMetaIntegrationInput,
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
+import {
+  encryptSecret,
+  decryptSecret,
+  maskSecret,
+} from "../security/crypto-service.js";
 
 /**
  * Saves or updates Meta Page credentials and configuration for an organization.
+ * Sensitive tokens are strictly encrypted using authenticated AES-256-GCM.
  */
 export async function configureMetaIntegration(
   context: TenantContext,
   input: ConfigureMetaIntegrationInput,
 ): Promise<MetaIntegration> {
   assertPermission(context, "manage", "organization");
+
+  const encryptedAccessToken = encryptSecret(input.pageAccessToken);
+  const encryptedAppSecret = encryptSecret(input.appSecret);
+  const encryptedVerifyToken = encryptSecret(input.verifyToken);
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
@@ -34,9 +44,9 @@ export async function configureMetaIntegration(
         context.organizationId,
         input.pageId,
         input.pageName || null,
-        input.pageAccessToken,
-        input.appSecret,
-        input.verifyToken,
+        encryptedAccessToken,
+        encryptedAppSecret,
+        encryptedVerifyToken,
         input.isActive ?? true,
         JSON.stringify(input.fieldMappings || {}),
       ],
@@ -48,9 +58,9 @@ export async function configureMetaIntegration(
       organizationId: row.organization_id,
       pageId: row.page_id,
       pageName: row.page_name,
-      pageAccessToken: row.page_access_token,
-      appSecret: row.app_secret,
-      verifyToken: row.verify_token,
+      pageAccessToken: maskSecret(row.page_access_token),
+      appSecret: maskSecret(row.app_secret),
+      verifyToken: maskSecret(row.verify_token),
       isActive: row.is_active,
       fieldMappings: row.field_mappings,
       createdAt: row.created_at,
@@ -60,7 +70,8 @@ export async function configureMetaIntegration(
 }
 
 /**
- * Looks up an active Meta integration by page_id outside tenant context (pre-routing).
+ * Looks up an active Meta integration by page_id outside tenant context (pre-routing),
+ * decrypting credentials for internal API communication.
  */
 export async function findMetaIntegrationByPageId(pageId: string): Promise<{
   organizationId: string;
@@ -87,9 +98,9 @@ export async function findMetaIntegrationByPageId(pageId: string): Promise<{
         organizationId: row.organization_id,
         pageId: row.page_id,
         pageName: row.page_name,
-        pageAccessToken: row.page_access_token,
-        appSecret: row.app_secret,
-        verifyToken: row.verify_token,
+        pageAccessToken: decryptSecret(row.page_access_token),
+        appSecret: decryptSecret(row.app_secret),
+        verifyToken: decryptSecret(row.verify_token),
         isActive: row.is_active,
         fieldMappings: row.field_mappings,
         createdAt: row.created_at,

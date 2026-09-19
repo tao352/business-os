@@ -213,3 +213,20 @@
   2. Implement a strictly isolated multi-tenant caching layer (`withTenantCache`, `getTenantCache`, `setTenantCache`, `invalidateTenantCache`) enforcing the mandatory keyspace pattern `tenant:{organizationId}:{namespace}:{key}`.
   3. Prohibit cross-tenant cache access, contamination, or wildcard invalidation, with cryptographic tenant verification before returning or invalidating cached payloads.
 - **Rationale:** Prevents denial-of-service and noisy-neighbor issues across tenants, minimizes database load on frequent query endpoints, and ensures zero data leakage in shared Redis cache instances.
+
+---
+
+## ADR-016: H0 Foundation Hardening, Relational Isolation, and Truthfulness
+
+- **Date:** 2026-09-19
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Following the 20-phase MVP build, an exhaustive foundation audit identified critical hardening requirements in database relational isolation, secret fail-closed behavior, asynchronous execution reliability, and architectural documentation truthfulness.
+- **Decision:**
+  1. **Enforce Database-Level Composite FKs:** Added `UNIQUE (organization_id, id)` and composite foreign keys across all tenant tables (`units`, `visits`, `reservations`, `contracts`, `deals`, `activities`, `tasks`) so child entities can never link to cross-tenant parent entities at the relational engine level.
+  2. **Migration Checksum & Runner Tracking:** Implemented `schema_migrations` tracking with SHA-256 integrity verification (`migrator.ts`) to ensure deterministic and immutable schema history.
+  3. **Strict Fail-Closed Secrets & AES-256-GCM At Rest:** Prohibited default/weak JWT secrets in production environments. Encrypted third-party tokens (Meta Lead Ads, WhatsApp Cloud API) at rest using authenticated AES-256-GCM (`v1:<iv>:<tag>:<ciphertext>`) and masked secrets in DTOs.
+  4. **Active Tenant Membership Guard:** Prohibited assigning leads, deals, or tasks to user IDs that are not active members of the tenant organization.
+  5. **Transactional Outbox for External Side-Effects:** Replaced direct third-party HTTP dispatches in Smart Rules with an asynchronous, RLS-isolated `outbox_events` table and background worker, preventing distributed transaction failures and nested transaction locks.
+  6. **Lua-Based Atomic Rate Limiting:** Converted multi-command rate limiting to single atomic Lua scripts and replaced blocking `KEYS` commands with non-blocking cursor `SCAN` in cache and rate-limiter sweeps.
+  7. **Documentation Truthfulness Standards:** Explicitly demarcated all system features with truthfulness tags: `[IMPLEMENTED]`, `[PROTOTYPE]`, and `[PLANNED]`.
+- **Rationale:** Guarantees absolute enterprise tenant isolation, eliminates silent security vulnerabilities, prevents distributed race conditions, and ensures full transparency for engineering and stakeholders.

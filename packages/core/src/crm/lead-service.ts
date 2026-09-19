@@ -1,6 +1,7 @@
 import { withTenantContext } from "@business-os/database";
 import type { TenantContext, LeadStatus } from "@business-os/types";
 import { assertPermission, can } from "../permissions/checker.js";
+import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { recordAuditLog } from "./audit-helper.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 
@@ -43,6 +44,16 @@ export async function createLead(
        WHERE organization_id = $1 AND entity_type = 'lead' AND is_active = true`,
       [context.organizationId],
     );
+
+    // If assignedUserId is provided, assert active tenant membership
+    if (input.assignedUserId) {
+      await assertActiveTenantMember(
+        context,
+        input.assignedUserId,
+        undefined,
+        tx,
+      );
+    }
 
     const validatedCustomData =
       defsRes.rows.length > 0
@@ -250,12 +261,14 @@ export async function assignLead(
     const lead = existing.rows[0];
     const previousAssignee = lead.assigned_user_id;
 
-    // Fetch target user name for timeline activity
-    const targetUserRes = await tx.query(
-      "SELECT full_name FROM users WHERE id = $1",
-      [targetUserId],
+    // Assert active tenant membership
+    const targetMember = await assertActiveTenantMember(
+      context,
+      targetUserId,
+      undefined,
+      tx,
     );
-    const targetUserName = targetUserRes.rows[0]?.full_name || "Agent";
+    const targetUserName = targetMember.fullName || "Agent";
 
     const res = await tx.query(
       `UPDATE leads

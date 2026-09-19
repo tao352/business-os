@@ -1,3 +1,10 @@
+/**
+ * [PROTOTYPE] Experimental Natural-Language AI Builder Service
+ *
+ * NOTE: This service is an experimental heuristic prototype. Field generation,
+ * rule generation, and saved view extraction are template-based and intended
+ * for human-in-the-loop review. Not intended for direct autonomous production use.
+ */
 import crypto from "node:crypto";
 import { logger } from "@business-os/logger";
 import type {

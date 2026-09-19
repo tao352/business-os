@@ -3,3 +3,4 @@ export * from "./rule-actions-executor.js";
 export * from "./rule-runner.js";
 export * from "./rule-simulator.js";
 export * from "./time-based-scanner.js";
+export * from "./outbox-service.js";

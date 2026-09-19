@@ -187,6 +187,8 @@ export async function processWhatsAppWebhookPayload(
         const senderPhone = msg.from;
         const bodyText = msg.text?.body || `[Media: ${msg.type}]`;
 
+        let newlyCreatedLead: Record<string, unknown> | null = null;
+
         await withTenantContext(systemContext.organizationId, async (tx) => {
           // Idempotency check on wamid
           const existingMsg = await tx.query(
@@ -228,6 +230,7 @@ export async function processWhatsAppWebhookPayload(
             const newLead = newLeadRes.rows[0];
             targetLeadId = newLead.id;
             result.leadsCreated++;
+            newlyCreatedLead = newLead;
 
             await recordAuditLog(tx, systemContext, {
               action: "CREATE",
@@ -235,9 +238,6 @@ export async function processWhatsAppWebhookPayload(
               entityId: targetLeadId,
               afterState: newLead,
             });
-
-            // Trigger Smart Rules on lead.created
-            await triggerRules(systemContext, "lead.created", "lead", newLead);
           }
 
           // Record Message
@@ -273,6 +273,16 @@ export async function processWhatsAppWebhookPayload(
 
           result.messagesProcessed++;
         });
+
+        // Trigger Smart Rules AFTER transaction commits (avoids nested transaction deadlock)
+        if (newlyCreatedLead) {
+          await triggerRules(
+            systemContext,
+            "lead.created",
+            "lead",
+            newlyCreatedLead,
+          );
+        }
       }
     }
   }

@@ -8,9 +8,20 @@ import type {
   SystemHealthOverview,
   OpsAccessLevel,
 } from "@business-os/types";
+import { getRedisClient } from "../security/rate-limiter.js";
+import { clearAllTenantCaches } from "../cache/tenant-cache.js";
 
 const START_TIME = Date.now();
 const RELEASE_VERSION = process.env.APP_RELEASE_VERSION || "0.1.0";
+
+export class NotImplementedError extends Error {
+  constructor(action: string) {
+    super(
+      `Operational action '${action}' is planned for production but not yet implemented.`,
+    );
+    this.name = "NotImplementedError";
+  }
+}
 
 /**
  * Operations Console Service: Platform monitoring, incident tracking,
@@ -19,6 +30,7 @@ const RELEASE_VERSION = process.env.APP_RELEASE_VERSION || "0.1.0";
 
 export async function getSystemHealthOverview(): Promise<SystemHealthOverview> {
   let dbOk = false;
+  let redisOk = false;
   let activeOrgs = 0;
   let totalLeads = 0;
   let openIncidents = 0;
@@ -38,12 +50,27 @@ export async function getSystemHealthOverview(): Promise<SystemHealthOverview> {
     );
     openIncidents = parseInt(incRes.rows[0]?.count || "0", 10);
   } catch (err) {
-    logger.error({ err }, "Error querying system health overview");
+    logger.error({ err }, "Error querying database for health overview");
+  }
+
+  // Real Redis ping check with timeout
+  try {
+    const client = getRedisClient();
+    if (client) {
+      const pingPromise = client.ping();
+      const timeoutPromise = new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error("Redis ping timeout")), 1500),
+      );
+      const pong = await Promise.race([pingPromise, timeoutPromise]);
+      redisOk = pong === "PONG";
+    }
+  } catch {
+    redisOk = false;
   }
 
   return {
     database_connected: dbOk,
-    redis_connected: true, // Docker container running healthy
+    redis_connected: redisOk,
     active_organizations_count: activeOrgs,
     total_leads_count: totalLeads,
     recent_incidents_count: openIncidents,
@@ -59,31 +86,31 @@ export async function recordTenantIncident(
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
       `INSERT INTO tenant_incident_logs (
-        organization_id, severity, title, details, correlation_id, status
-      ) VALUES ($1, $2, $3, $4, $5, 'OPEN')
+        organization_id, severity, title, details, status, correlation_id, created_at
+      ) VALUES ($1, $2, $3, $4, 'OPEN', $5, CURRENT_TIMESTAMP)
       RETURNING *`,
       [
         context.organizationId,
         input.severity,
         input.title,
         JSON.stringify(input.details || {}),
-        input.correlation_id || context.correlationId || null,
+        input.correlation_id || null,
       ],
     );
 
-    const incident = res.rows[0];
+    const inc = res.rows[0];
 
     logger.warn(
       {
+        incidentId: inc.id,
         organizationId: context.organizationId,
-        incidentId: incident.id,
         severity: input.severity,
         title: input.title,
       },
-      "Tenant operational incident recorded",
+      "Operational incident recorded for tenant",
     );
 
-    return incident;
+    return inc;
   });
 }
 
@@ -110,14 +137,15 @@ export async function listTenantIncidents(
 export async function resolveTenantIncident(
   context: TenantContext,
   incidentId: string,
+  newStatus: TenantIncidentStatus = "RESOLVED",
 ): Promise<TenantIncident> {
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
       `UPDATE tenant_incident_logs
-       SET status = 'RESOLVED', resolved_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND organization_id = $2
+       SET status = $1, resolved_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND organization_id = $3
        RETURNING *`,
-      [incidentId, context.organizationId],
+      [newStatus, incidentId, context.organizationId],
     );
 
     if (res.rows.length === 0) {
@@ -131,7 +159,7 @@ export async function resolveTenantIncident(
 }
 
 /**
- * Executes an operational action with strict multi-level access control (Master Plan Section 38).
+ * Executes an operational action with strict multi-level access control.
  */
 export async function executeSafeOpsAction(
   action:
@@ -158,6 +186,15 @@ export async function executeSafeOpsAction(
     { action, payload, level },
     "Executing authorized operational action",
   );
+
+  if (action === "CLEAR_APPROVED_CACHE") {
+    await clearAllTenantCaches();
+    return {
+      success: true,
+      message: "Cleared all tenant caches successfully",
+      action,
+    };
+  }
 
   return {
     success: true,

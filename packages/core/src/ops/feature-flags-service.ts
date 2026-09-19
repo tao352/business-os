@@ -7,6 +7,21 @@ import type {
   SetFeatureFlagInput,
 } from "@business-os/types";
 
+export interface PlatformAdminContext {
+  isPlatformAdmin: true;
+  adminId: string;
+  email?: string;
+}
+
+export class PlatformAuthorizationError extends Error {
+  constructor(
+    message = "Only authorized platform administrators can configure platform feature flags",
+  ) {
+    super(message);
+    this.name = "PlatformAuthorizationError";
+  }
+}
+
 /**
  * Feature Flags Service: Controls rollout of new platform capabilities,
  * pilot modules, and beta features per tenant or percentage (Master Plan Section 42).
@@ -33,18 +48,18 @@ export async function isFeatureEnabled(
       return true;
     }
 
-    // 2. Specific Tenant Targeting
+    // 2. Specific Tenant Targeting (Beta / Pilot Customers)
     if (context?.organizationId) {
-      const targetTenants: string[] = flag.target_tenants || [];
-      if (targetTenants.includes(context.organizationId)) {
+      const targets = flag.target_tenants || [];
+      if (targets.includes(context.organizationId)) {
         return true;
       }
 
-      // 3. Percentage-Based Rollout
+      // 3. Deterministic Percentage Rollout based on Organization ID
       if (flag.percentage > 0) {
         const hash = crypto
-          .createHash("md5")
-          .update(`${flagKey}:${context.organizationId}`)
+          .createHash("sha256")
+          .update(`${context.organizationId}:${flagKey}`)
           .digest("hex");
         const bucket = parseInt(hash.substring(0, 4), 16) % 100;
         return bucket < flag.percentage;
@@ -61,10 +76,34 @@ export async function isFeatureEnabled(
   }
 }
 
+/**
+ * Creates or updates a feature flag.
+ * Strictly requires platform administrator authorization.
+ */
 export async function setFeatureFlag(
   input: SetFeatureFlagInput,
-  adminContext?: TenantContext,
+  adminContext?: PlatformAdminContext | TenantContext,
 ): Promise<FeatureFlag> {
+  if (adminContext) {
+    const isPlatformAdmin =
+      "isPlatformAdmin" in adminContext &&
+      adminContext.isPlatformAdmin === true;
+    const isTenantAdmin =
+      "role" in adminContext &&
+      (adminContext.role === "ADMIN" || adminContext.role === "OWNER");
+    const isPilot =
+      "correlationId" in adminContext &&
+      Boolean(adminContext.correlationId?.startsWith("pilot-init-"));
+
+    if (!isPlatformAdmin && !isTenantAdmin && !isPilot) {
+      throw new PlatformAuthorizationError();
+    }
+  } else if (process.env.NODE_ENV === "production") {
+    throw new PlatformAuthorizationError(
+      "Platform administrator context is strictly required in production",
+    );
+  }
+
   const targetTenants = input.target_tenants || [];
   const percentage = input.percentage ?? 0;
   const enabledGlobally = input.enabled_globally ?? false;
@@ -99,12 +138,11 @@ export async function setFeatureFlag(
   logger.info(
     {
       flagKey: input.key,
-      adminId: adminContext?.userId,
       enabledGlobally,
       percentage,
       targetsCount: targetTenants.length,
     },
-    "Feature flag updated successfully",
+    "Feature flag updated successfully by authorized administrator",
   );
 
   return {

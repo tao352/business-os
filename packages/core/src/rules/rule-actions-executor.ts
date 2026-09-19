@@ -1,5 +1,7 @@
 import type { TenantContext, RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
+import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
+import { enqueueOutboxEvent } from "./outbox-service.js";
 import {
   WhatsAppApiClient,
   DefaultWhatsAppApiClient,
@@ -84,10 +86,10 @@ export async function executeRuleAction(
           };
         }
 
-        // Get last assigned user
+        // Get last assigned user with concurrency lock
         const stateRes = await tx.query(
           `SELECT last_assigned_user_id FROM round_robin_state
-           WHERE organization_id = $1 AND rule_id = $2`,
+           WHERE organization_id = $1 AND rule_id = $2 FOR UPDATE`,
           [context.organizationId, ruleId],
         );
 
@@ -157,11 +159,22 @@ export async function executeRuleAction(
         }
         const targetUserId = String(action.params.user_id);
 
-        const userRes = await tx.query(
-          `SELECT full_name FROM users WHERE id = $1`,
-          [targetUserId],
-        );
-        const userName = userRes.rows[0]?.full_name || "Agent";
+        let member;
+        try {
+          member = await assertActiveTenantMember(
+            context,
+            targetUserId,
+            undefined,
+            tx,
+          );
+        } catch (err) {
+          return {
+            action_type: action.action_type,
+            status: "FAILED",
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+        const userName = member.fullName || "Agent";
 
         await tx.query(
           `UPDATE leads SET assigned_user_id = $1, updated_at = NOW() WHERE id = $2`,
@@ -321,50 +334,75 @@ export async function executeRuleAction(
         }
 
         const integration = intRes.rows[0];
-        const client =
-          options?.whatsAppClient || new DefaultWhatsAppApiClient();
 
-        const sendRes = await client.sendTemplate(
-          integration.phone_number_id,
-          integration.access_token,
-          String(entity.phone),
-          templateName,
-          languageCode,
-          variables,
+        // 1. Transactional Outbox Enqueue (guarantees atomic commit before external network side effect)
+        const idempotencyKey = `wa_tpl_${context.organizationId}_${ruleId}_${entityId}_${Date.now()}`;
+        const outboxId = await enqueueOutboxEvent(
+          tx,
+          context,
+          "WHATSAPP_SEND_TEMPLATE",
+          {
+            phoneNumberId: integration.phone_number_id,
+            accessToken: integration.access_token,
+            recipientPhone: String(entity.phone),
+            templateName,
+            languageCode,
+            variables,
+            entityId,
+          },
+          idempotencyKey,
         );
 
-        await tx.query(
-          `INSERT INTO whatsapp_messages (
-            organization_id, wamid, lead_id, direction, sender_phone,
-            recipient_phone, message_type, body, status
-          ) VALUES ($1, $2, $3, 'OUTBOUND', $4, $5, 'template', $6, 'SENT')`,
-          [
-            context.organizationId,
-            sendRes.wamid,
-            entityId,
-            integration.phone_number || integration.phone_number_id,
+        // 2. If dedicated WhatsApp client is provided (test/inline mode), execute and record
+        if (options?.whatsAppClient) {
+          const sendRes = await options.whatsAppClient.sendTemplate(
+            integration.phone_number_id,
+            integration.access_token,
             String(entity.phone),
-            `Template: ${templateName}`,
-          ],
-        );
+            templateName,
+            languageCode,
+            variables,
+          );
 
-        await tx.query(
-          `INSERT INTO activities (
-            organization_id, lead_id, user_id, activity_type, summary, details
-          ) VALUES ($1, $2, $3, 'WHATSAPP', $4, $5)`,
-          [
-            context.organizationId,
-            entityId,
-            context.userId,
-            `Automated WhatsApp Template Sent: ${templateName}`,
-            JSON.stringify({ wamid: sendRes.wamid, templateName, variables }),
-          ],
-        );
+          await tx.query(
+            `INSERT INTO whatsapp_messages (
+              organization_id, wamid, lead_id, direction, sender_phone,
+              recipient_phone, message_type, body, status
+            ) VALUES ($1, $2, $3, 'OUTBOUND', $4, $5, 'template', $6, 'SENT')`,
+            [
+              context.organizationId,
+              sendRes.wamid,
+              entityId,
+              integration.phone_number || integration.phone_number_id,
+              String(entity.phone),
+              `Template: ${templateName}`,
+            ],
+          );
+
+          await tx.query(
+            `INSERT INTO activities (
+              organization_id, lead_id, user_id, activity_type, summary, details
+            ) VALUES ($1, $2, $3, 'WHATSAPP', $4, $5)`,
+            [
+              context.organizationId,
+              entityId,
+              context.userId,
+              `Automated WhatsApp Template Sent: ${templateName}`,
+              JSON.stringify({ wamid: sendRes.wamid, templateName, variables }),
+            ],
+          );
+
+          return {
+            action_type: action.action_type,
+            status: "SUCCESS",
+            result: { wamid: sendRes.wamid, templateName, outboxId },
+          };
+        }
 
         return {
           action_type: action.action_type,
           status: "SUCCESS",
-          result: { wamid: sendRes.wamid, templateName },
+          result: { outboxId, queued: true, templateName },
         };
       }
 

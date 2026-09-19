@@ -14,6 +14,27 @@ const inMemoryStore = new Map<string, number[]>();
 let redisClient: Redis | null = null;
 let redisInitialized = false;
 
+// Atomic sliding-window Lua script for Redis
+const SLIDING_WINDOW_LUA = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local clearBefore = now - window
+local member = ARGV[4]
+
+redis.call('ZREMRANGEBYSCORE', key, 0, clearBefore)
+local current = redis.call('ZCARD', key)
+
+if current < limit then
+  redis.call('ZADD', key, now, member)
+  redis.call('PEXPIRE', key, window)
+  return { 1, current + 1 }
+else
+  return { 0, current }
+end
+`;
+
 export function getRedisClient(): Redis | null {
   if (redisInitialized) return redisClient;
 
@@ -24,14 +45,14 @@ export function getRedisClient(): Redis | null {
     const client = new Redis(redisUrl, {
       maxRetriesPerRequest: 1,
       connectTimeout: 1000,
-      retryStrategy: () => null, // Don't hang indefinitely on test/offline
+      retryStrategy: () => null,
       lazyConnect: true,
     });
 
     client.on("error", (err: Error) => {
       logger.warn(
         { error: err.message },
-        "Redis rate limiter connection error, falling back to in-memory store",
+        "Redis connection error in rate limiter, using fallback",
       );
     });
 
@@ -39,7 +60,7 @@ export function getRedisClient(): Redis | null {
   } catch (err) {
     logger.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      "Failed to initialize Redis client, using in-memory store",
+      "Failed to initialize Redis client, using memory store",
     );
     redisClient = null;
   }
@@ -53,7 +74,19 @@ export function setRedisClient(client: Redis | null): void {
 }
 
 /**
- * Consumes 1 request token against the sliding window.
+ * Checks if a key represents a high-sensitivity authentication or security endpoint.
+ */
+function isSensitiveSecurityKey(key: string): boolean {
+  return (
+    key.includes("auth:") ||
+    key.includes("login:") ||
+    key.includes("password") ||
+    key.includes("security:")
+  );
+}
+
+/**
+ * Consumes 1 request token against the sliding window atomically.
  */
 export async function consumeRateLimit(
   key: string,
@@ -66,54 +99,52 @@ export async function consumeRateLimit(
 
   const client = getRedisClient();
 
+  // 1. Atomic Redis execution via Lua script
   if (client && client.status === "ready") {
     try {
       const member = `${now}-${Math.random().toString(36).substring(2, 9)}`;
-      const pipeline = client.pipeline();
-      pipeline.zremrangebyscore(fullKey, 0, windowStart);
-      pipeline.zcard(fullKey);
-      pipeline.zadd(fullKey, now, member);
-      pipeline.pexpire(fullKey, config.windowMs);
+      const result = (await client.eval(
+        SLIDING_WINDOW_LUA,
+        1,
+        fullKey,
+        now,
+        config.windowMs,
+        config.maxRequests,
+        member,
+      )) as [number, number];
 
-      const results = await pipeline.exec();
-      const currentCount = (results?.[1]?.[1] as number) ?? 0;
-
-      if (currentCount >= config.maxRequests) {
-        // Rollback added member since it exceeds limit
-        await client.zrem(fullKey, member);
-        return {
-          allowed: false,
-          limit: config.maxRequests,
-          remaining: 0,
-          resetTimeMs: now + config.windowMs,
-          current: currentCount,
-        };
-      }
+      const allowed = result[0] === 1;
+      const current = result[1];
 
       return {
-        allowed: true,
+        allowed,
         limit: config.maxRequests,
-        remaining: Math.max(0, config.maxRequests - (currentCount + 1)),
+        remaining: Math.max(0, config.maxRequests - current),
         resetTimeMs: now + config.windowMs,
-        current: currentCount + 1,
+        current,
       };
     } catch (err) {
       logger.warn(
         { error: err instanceof Error ? err.message : String(err) },
-        "Redis error in consumeRateLimit, falling back to memory",
+        "Redis error in consumeRateLimit, executing fallback policy",
       );
     }
   }
 
-  // In-memory sliding window implementation
+  // 2. Degraded in-memory fallback policy (H0-19)
+  // For sensitive security/login endpoints, enforce strict tightened limits during Redis partition
+  const effectiveMax = isSensitiveSecurityKey(fullKey)
+    ? Math.max(1, Math.floor(config.maxRequests * 0.5))
+    : config.maxRequests;
+
   let timestamps = inMemoryStore.get(fullKey) || [];
   timestamps = timestamps.filter((t) => t > windowStart);
 
-  if (timestamps.length >= config.maxRequests) {
+  if (timestamps.length >= effectiveMax) {
     inMemoryStore.set(fullKey, timestamps);
     return {
       allowed: false,
-      limit: config.maxRequests,
+      limit: effectiveMax,
       remaining: 0,
       resetTimeMs: (timestamps[0] ?? now) + config.windowMs,
       current: timestamps.length,
@@ -125,8 +156,8 @@ export async function consumeRateLimit(
 
   return {
     allowed: true,
-    limit: config.maxRequests,
-    remaining: config.maxRequests - timestamps.length,
+    limit: effectiveMax,
+    remaining: effectiveMax - timestamps.length,
     resetTimeMs: timestamps[0]! + config.windowMs,
     current: timestamps.length,
   };
@@ -202,7 +233,7 @@ export async function resetRateLimit(
 }
 
 /**
- * Clears all rate limits (primarily used for test cleanup).
+ * Clears all rate limits using non-blocking SCAN instead of KEYS (H0-20).
  */
 export async function clearAllRateLimits(): Promise<void> {
   inMemoryStore.clear();
@@ -210,10 +241,20 @@ export async function clearAllRateLimits(): Promise<void> {
   const client = getRedisClient();
   if (client && client.status === "ready") {
     try {
-      const keys = await client.keys(`${DEFAULT_CONFIG.keyPrefix}:*`);
-      if (keys.length > 0) {
-        await client.del(...keys);
-      }
+      let cursor = "0";
+      do {
+        const [nextCursor, keys] = await client.scan(
+          cursor,
+          "MATCH",
+          `${DEFAULT_CONFIG.keyPrefix}:*`,
+          "COUNT",
+          100,
+        );
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          await client.del(...keys);
+        }
+      } while (cursor !== "0");
     } catch (err) {
       logger.warn(
         { error: err instanceof Error ? err.message : String(err) },

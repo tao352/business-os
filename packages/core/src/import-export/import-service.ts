@@ -14,6 +14,7 @@ import { parseCsv } from "./csv-parser.js";
 import { autoDetectColumnMapping } from "./column-matcher.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { assertPermission } from "../permissions/checker.js";
 
 export interface ImportOptions {
   mappingOverrides?: ColumnMapping;
@@ -73,6 +74,8 @@ export async function validateAndDryRunImport(
   fileContent: string,
   options: ImportOptions = {},
 ): Promise<ImportDryRunResult> {
+  assertPermission(context, "create", entityType === "leads" ? "lead" : "unit");
+
   const parsed = parseCsv(fileContent);
   if (parsed.rows.length === 0) {
     return {
@@ -257,6 +260,8 @@ export async function executeImport(
   fileContent: string,
   options: ImportOptions = {},
 ): Promise<ImportExecutionResult> {
+  assertPermission(context, "create", entityType === "leads" ? "lead" : "unit");
+
   const duplicateStrategy = options.duplicateStrategy ?? "SKIP";
   const dryRun = await validateAndDryRunImport(
     context,

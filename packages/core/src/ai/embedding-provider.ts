@@ -1,19 +1,21 @@
 import type { EmbeddingProvider } from "@business-os/types";
 
 /**
- * DeterministicEmbeddingProvider generates 1536-dimensional normalized unit vectors
- * based on token hashing and positional weighting.
- *
- * Guarantees:
- * 1. Exactly 1536 dimensions.
- * 2. Strict L2-normalization: ||v|| = 1.0.
- * 3. Text containing the same keywords will produce high cosine similarity (> 0.6).
- * 4. Completely offline & deterministic for reliable CI/CD & unit testing.
+ * [TEST / OFFLINE ONLY] DeterministicEmbeddingProvider
+ * Generates 1536-dimensional feature-hashed unit vectors for offline testing and CI.
+ * NOT a semantic neural embedding model. In production, connect an external model provider
+ * (e.g. OpenAI text-embedding-3-small, Google Vertex AI text-embedding-004, or Cohere).
  */
 export class DeterministicEmbeddingProvider implements EmbeddingProvider {
   public readonly dimension = 1536;
 
   async generateEmbedding(text: string): Promise<number[]> {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "DeterministicEmbeddingProvider cannot be used in production. A live semantic embedding model must be configured.",
+      );
+    }
+
     const vector = new Array<number>(this.dimension).fill(0);
     const tokens = this.tokenize(text);
 
