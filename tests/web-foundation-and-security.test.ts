@@ -353,6 +353,7 @@ describe("Phase 21: Web Application Foundation & Tenant Security Suite", () => {
 
     it("fails closed in production if DATABASE_URL uses localhost or default postgres credentials", () => {
       process.env.NODE_ENV = "production";
+      delete process.env.CI;
       process.env.DATABASE_URL =
         "postgres://postgres:postgrespassword@localhost:5432/business_os";
 

@@ -26,6 +26,7 @@ describe("Phase 21 Stabilization: Authentication Hardening, Rate Limiting & Envi
 
     it("fails closed in production if DATABASE_URL uses localhost or default credentials", () => {
       process.env.NODE_ENV = "production";
+      delete process.env.CI;
       process.env.DATABASE_URL =
         "postgres://postgres:postgrespassword@localhost:5432/business_os";
       process.env.JWT_SECRET =
@@ -35,6 +36,18 @@ describe("Phase 21 Stabilization: Authentication Hardening, Rate Limiting & Envi
       expect(() => validateWebEnvironment()).toThrow(
         /FATAL SECURITY ERROR: DATABASE_URL cannot use default credentials or localhost in production/,
       );
+    });
+
+    it("tolerates localhost database credentials in production ONLY when explicit CI=true test flag is present", () => {
+      process.env.NODE_ENV = "production";
+      process.env.CI = "true";
+      process.env.DATABASE_URL =
+        "postgres://app_user:app_password@localhost:5434/business_os";
+      process.env.JWT_SECRET =
+        "super-secret-production-jwt-key-32-chars-minimum!";
+      process.env.ENCRYPTION_KEY = "super-secret-encryption-key-32-bytes!!";
+
+      expect(() => validateWebEnvironment()).not.toThrow();
     });
 
     it("fails closed in production if JWT_SECRET is too short", () => {

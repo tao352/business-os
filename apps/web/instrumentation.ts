@@ -15,12 +15,9 @@ export async function register() {
   const { validateWebEnvironment } = await import("./lib/env.js");
   validateWebEnvironment();
 
-  const isStrictProduction =
-    process.env.NODE_ENV === "production" &&
-    process.env.ALLOW_LOCAL_DEV_CREDS !== "true";
-
+  const isProduction = process.env.NODE_ENV === "production";
   const mustVerifyRuntimeRole =
-    isStrictProduction || process.env.VERIFY_RUNTIME_DB_ROLE === "true";
+    isProduction || process.env.VERIFY_RUNTIME_DB_ROLE === "true";
 
   if (mustVerifyRuntimeRole) {
     const { assertLeastPrivilegeRuntimeDatabaseRole } =

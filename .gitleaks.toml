@@ -2,12 +2,7 @@
 useDefault = true
 
 [allowlist]
-description = "Allowlist for safe test fixtures, dummy encryption keys, and CI workflow dummy variables"
-paths = [
-  '''tests/.*''',
-  '''tests-e2e/.*''',
-  '''\.github/workflows/.*''',
-]
+description = "Allowlist for safe test fixtures and dummy CI environment variables"
 regexes = [
   '''test-encryption-key-32-bytes-ci-safe''',
   '''wa_secret_futtaim_2026''',

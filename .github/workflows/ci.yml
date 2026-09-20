@@ -184,7 +184,6 @@ jobs:
         run: pnpm run web:build
         env:
           DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
-          ALLOW_LOCAL_DEV_CREDS: "true"
           JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
           ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
 
@@ -194,7 +193,6 @@ jobs:
           DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
           MIGRATOR_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
           TEST_ADMIN_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
-          ALLOW_LOCAL_DEV_CREDS: "true"
           APP_DB_PASSWORD: app_password
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026

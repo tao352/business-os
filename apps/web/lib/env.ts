@@ -5,9 +5,7 @@ import { logger } from "@business-os/logger";
  * Fails closed immediately in production if any mandatory variable is missing or insecure.
  */
 export function validateWebEnvironment(): void {
-  const isProduction =
-    process.env.NODE_ENV === "production" &&
-    process.env.ALLOW_LOCAL_DEV_CREDS !== "true";
+  const isProduction = process.env.NODE_ENV === "production";
 
   if (isProduction) {
     if (
@@ -19,10 +17,15 @@ export function validateWebEnvironment(): void {
       );
     }
 
-    if (
+    // Default or localhost database credentials are strictly prohibited in normal production.
+    // They are tolerated only in an explicit automated CI test environment requiring CI=true.
+    const isExplicitCiTest = process.env.CI === "true";
+    const hasDefaultOrLocalhostCreds =
       process.env.DATABASE_URL.includes("postgres:postgrespassword@") ||
-      process.env.DATABASE_URL.includes("localhost")
-    ) {
+      process.env.DATABASE_URL.includes("localhost") ||
+      process.env.DATABASE_URL.includes("127.0.0.1");
+
+    if (hasDefaultOrLocalhostCreds && !isExplicitCiTest) {
       throw new Error(
         "FATAL SECURITY ERROR: DATABASE_URL cannot use default credentials or localhost in production.",
       );

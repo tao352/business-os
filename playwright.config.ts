@@ -29,7 +29,7 @@ export default defineConfig({
     : {
         command: "pnpm --filter @business-os/web start",
         url: "http://localhost:3000/api/health",
-        reuseExistingServer: true,
+        reuseExistingServer: false,
         timeout: 30000,
         env: {
           PORT: "3000",
@@ -38,7 +38,7 @@ export default defineConfig({
             process.env.DATABASE_URL ||
             "postgres://app_user:app_password@localhost:5434/business_os",
 
-          ALLOW_LOCAL_DEV_CREDS: "true",
+          CI: "true",
 
           VERIFY_RUNTIME_DB_ROLE: process.env.VERIFY_RUNTIME_DB_ROLE || "true",
 
@@ -47,7 +47,7 @@ export default defineConfig({
 
           JWT_SECRET:
             process.env.JWT_SECRET ||
-            "super-secret-jwt-signing-key-minimum-32-chars-for-dev",
+            "test-secret-for-ci-minimum-32-chars-key-2026",
 
           ENCRYPTION_KEY:
             process.env.ENCRYPTION_KEY ||
