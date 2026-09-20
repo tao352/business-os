@@ -2,7 +2,7 @@ import {
   runPendingMigrations,
   verifyMigrationIntegrity,
 } from "../packages/database/src/migrator.js";
-import { pool } from "../packages/database/src/client.js";
+import { pool, migratorPool } from "../packages/database/src/client.js";
 
 /**
  * Vitest Global Setup: Executes ONCE in the main process before any test runner threads are spawned.
@@ -33,5 +33,5 @@ export async function setup(): Promise<void> {
 }
 
 export async function teardown(): Promise<void> {
-  await pool.end();
+  await Promise.all([pool.end(), migratorPool.end()]);
 }

@@ -3,7 +3,7 @@ import type { TenantContext, RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
-import { enqueueWhatsAppOutbound } from "../whatsapp/whatsapp-service.js";
+import { enqueueWhatsAppOutbound } from "../whatsapp/whatsapp-outbox-service.js";
 
 export interface ActionExecutionResult {
   action_type: string;

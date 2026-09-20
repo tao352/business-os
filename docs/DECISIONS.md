@@ -303,3 +303,31 @@
   4. **Database-Level API Idempotency (Migration 0017):** Added `idempotency_key VARCHAR(255)` and a partial unique index `idx_wa_msg_org_idempotency_key` on `whatsapp_messages (organization_id, idempotency_key) WHERE idempotency_key IS NOT NULL`. Calling `sendWhatsAppMessage` or `enqueueWhatsAppOutbound` with an existing `idempotencyKey` immediately returns the existing message record without creating duplicate outbox events or orphan records.
   5. **Auto-Transition of Exhausted Stale Leases:** In `processPendingOutboxEvents()`, stale `PROCESSING` events (`processing_started_at < NOW() - INTERVAL '5 minutes'`) with `retry_count >= max_retries` are automatically transitioned to `status = 'FAILED'`, keeping database status accurate and clean for observability.
 - **Rationale:** Unifies automation and manual messaging under a single durable pipeline, eliminates customer duplicate messaging during worker crashes, ensures exact API idempotency without orphan records, and guarantees complete documentation integrity.
+
+---
+
+## ADR-021: H0 Stabilization Patch v2.4 — Concurrent Idempotency Safe Insertion, Outbox Rollback Verification, WhatsApp Error Retry Classification, and Modular Decoupling
+
+- **Date:** 2026-09-20
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Final review of PR #1 prior to H0 sign-off revealed 3 merge blockers and 2 architectural enhancements:
+  1. _Concurrent Idempotency Bug (23505 Unique Violation Aborting Transactions):_ In PostgreSQL transactions, catching a `23505 unique_violation` exception in application code leaves the transaction in an aborted state (`25P02: current transaction is aborted, commands ignored until end of transaction block`). A pre-check followed by raw `INSERT` allowed race conditions where concurrent requests with the same `(organization_id, idempotency_key)` aborted one of the concurrent transactions.
+  2. _Missing Rollback Test for Outbox Guarantees:_ The test suite lacked verification that downstream transaction failure after outbox enqueue rolls back both the message and the outbox event, with zero state committed and zero provider calls.
+  3. _Coarse WhatsApp API Error Handling:_ Graph API errors were caught indiscriminately. Rate limit (429) and server outages (5xx) were not differentiated from terminal 400 Bad Request / 401 Unauthorized errors, risking premature dead-lettering of transient errors or endless retrying of malformed payloads. Furthermore, ambiguous network timeouts needed structured differentiation.
+  4. _Circular Dependency:_ `rule-actions-executor.ts` imported `whatsapp-service.ts`, creating a circular dependency between rules and whatsapp modules.
+  5. _Separation of Migrator Database Connection:_ Database migrations executed over the generic application connection pool rather than a dedicated administrative DDL/role management connection.
+- **Decision:**
+  1. **Atomic Concurrent Idempotency via `ON CONFLICT DO NOTHING`:**
+     In `enqueueWhatsAppOutbound`, the raw `INSERT` into `whatsapp_messages` was updated with `ON CONFLICT (organization_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING RETURNING *`. If zero rows are returned (indicating a concurrent insert occurred), the existing row is queried immediately within the same transaction without triggering a `25P02` transaction abort. The corresponding outbox event insertion uses `ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING id`.
+  2. **Comprehensive Transactional Outbox Rollback Verification:**
+     Added automated test verifying that when an application error occurs downstream of `enqueueWhatsAppOutbound` inside a transaction, the entire transaction rolls back: 0 rows in `whatsapp_messages`, 0 rows in `outbox_events`, and 0 external provider calls.
+  3. **Structured WhatsApp API Error Classification & Retry Policy:**
+     Introduced `WhatsAppApiError` with `statusCode`, `retryable: boolean`, and `isAmbiguous: boolean`.
+     - **Transient Errors (429 Rate Limit, 5xx Server Outages):** Classified as `retryable = true`. In `handleWhatsAppOutboundEvent`, the message status is reset to `PENDING` and a standard `Error` is thrown, allowing the outbox worker to increment `retry_count` and retry upon next schedule until `max_retries`.
+     - **Terminal Errors (400 Bad Request, 401 Unauthorized, etc.):** Classified as `retryable = false`. In `handleWhatsAppOutboundEvent`, the message status is set to `FAILED` and a `TerminalOutboxError` is thrown, setting `retry_count = max_retries` and permanently exhausting the event.
+     - **Ambiguous Network Dispatches (Timeouts, socket resets during dispatch):** Classified as `isAmbiguous = true`. Message status is transitioned to `UNKNOWN` and `TerminalOutboxError` is thrown to suppress blind customer message duplicates pending webhook reconciliation.
+  4. **Decoupled Outbox Service (`whatsapp-outbox-service.ts`):**
+     Extracted `enqueueWhatsAppOutbound` into `packages/core/src/whatsapp/whatsapp-outbox-service.ts`. `rule-actions-executor.ts` imports directly from this module, eliminating circular dependencies between `rules` and `whatsapp` packages.
+  5. **Independent Administrative Migrator Pool:**
+     Added `migratorPool` to `packages/database/src/client.ts` configured via `process.env.MIGRATOR_DATABASE_URL || databaseUrl`. Administrative DDL runner `runPendingMigrations` and checksum verifier `verifyMigrationIntegrity` in `packages/database/src/migrator.ts` connect exclusively through `migratorPool`.
+- **Rationale:** Resolves all remaining H0 merge blockers, ensures true concurrency-safe idempotency without transaction corruption, guarantees resilient retry behaviors tailored to Meta's API specifications, and cleanly isolates architectural boundaries.

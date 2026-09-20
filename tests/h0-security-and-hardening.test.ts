@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
 import {
   pool,
+  migratorPool,
   withTenantContext,
   Client,
 } from "../packages/database/src/index.js";
@@ -128,7 +129,7 @@ describe("H0 Foundation Audit & Hardening Regression Test Suite", () => {
   });
 
   afterAll(async () => {
-    await pool.end();
+    await Promise.all([pool.end(), migratorPool.end()]);
   });
 
   describe("H0-16: Idempotent Migration Runner & Checksum Verification", () => {

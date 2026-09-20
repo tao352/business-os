@@ -19,6 +19,19 @@ pool.on("error", (err) => {
   logger.error({ err }, "Unexpected error on idle PostgreSQL client");
 });
 
+const migratorDatabaseUrl = process.env.MIGRATOR_DATABASE_URL || databaseUrl;
+
+export const migratorPool = new Pool({
+  connectionString: migratorDatabaseUrl,
+  max: Number(process.env.MIGRATOR_DATABASE_MAX_CONNECTIONS || 5),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+migratorPool.on("error", (err) => {
+  logger.error({ err }, "Unexpected error on idle migrator PostgreSQL client");
+});
+
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
     const client = await pool.connect();

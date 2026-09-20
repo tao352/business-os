@@ -1,5 +1,23 @@
 import crypto from "node:crypto";
 
+/**
+ * Strongly-typed error class for WhatsApp Graph API calls.
+ * Differentiates retryable rate-limits/server errors from permanent client/token errors,
+ * and tracks ambiguous delivery status on post-dispatch network failures.
+ */
+export class WhatsAppApiError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+    public readonly retryable: boolean,
+    public readonly isAmbiguous: boolean = false,
+    public readonly rawResponse?: unknown,
+  ) {
+    super(message);
+    this.name = "WhatsAppApiError";
+  }
+}
+
 export interface WhatsAppApiClient {
   sendTemplate(
     phoneNumberId: string,
@@ -50,18 +68,52 @@ export class DefaultWhatsAppApiClient implements WhatsAppApiClient {
       },
     };
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (networkErr: any) {
+      const isTimeout =
+        networkErr?.name === "TimeoutError" ||
+        networkErr?.code === "ETIMEDOUT" ||
+        networkErr?.code === "ECONNRESET" ||
+        String(networkErr?.message).toLowerCase().includes("timeout");
+
+      throw new WhatsAppApiError(
+        networkErr?.message || "Network error during WhatsApp API dispatch",
+        0,
+        false,
+        isTimeout,
+        networkErr,
+      );
+    }
 
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Failed to send WhatsApp template: ${res.status} ${err}`);
+      const errText = await res.text();
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(errText);
+      } catch {
+        parsedBody = errText;
+      }
+
+      const status = res.status;
+      // 429 Rate Limit and 5xx Server Outages are retryable
+      const retryable = status === 429 || (status >= 500 && status < 600);
+
+      throw new WhatsAppApiError(
+        `Failed to send WhatsApp template: ${status} ${errText}`,
+        status,
+        retryable,
+        false,
+        parsedBody,
+      );
     }
 
     const data = (await res.json()) as any;
@@ -87,18 +139,51 @@ export class DefaultWhatsAppApiClient implements WhatsAppApiClient {
       text: { body: text },
     };
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (networkErr: any) {
+      const isTimeout =
+        networkErr?.name === "TimeoutError" ||
+        networkErr?.code === "ETIMEDOUT" ||
+        networkErr?.code === "ECONNRESET" ||
+        String(networkErr?.message).toLowerCase().includes("timeout");
+
+      throw new WhatsAppApiError(
+        networkErr?.message || "Network error during WhatsApp API dispatch",
+        0,
+        false,
+        isTimeout,
+        networkErr,
+      );
+    }
 
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Failed to send WhatsApp text: ${res.status} ${err}`);
+      const errText = await res.text();
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(errText);
+      } catch {
+        parsedBody = errText;
+      }
+
+      const status = res.status;
+      const retryable = status === 429 || (status >= 500 && status < 600);
+
+      throw new WhatsAppApiError(
+        `Failed to send WhatsApp text: ${status} ${errText}`,
+        status,
+        retryable,
+        false,
+        parsedBody,
+      );
     }
 
     const data = (await res.json()) as any;
@@ -126,6 +211,8 @@ export class MockWhatsAppApiClient implements WhatsAppApiClient {
     wamid: string;
   }> = [];
 
+  public nextError?: Error;
+
   async sendTemplate(
     phoneNumberId: string,
     _accessToken: string,
@@ -134,6 +221,11 @@ export class MockWhatsAppApiClient implements WhatsAppApiClient {
     _languageCode?: string,
     variables?: string[],
   ): Promise<{ wamid: string }> {
+    if (this.nextError) {
+      const err = this.nextError;
+      this.nextError = undefined;
+      throw err;
+    }
     const wamid = `wamid.HBgM${crypto.randomBytes(8).toString("hex")}`;
     this.sentTemplates.push({
       phoneNumberId,
@@ -151,6 +243,11 @@ export class MockWhatsAppApiClient implements WhatsAppApiClient {
     recipientPhone: string,
     text: string,
   ): Promise<{ wamid: string }> {
+    if (this.nextError) {
+      const err = this.nextError;
+      this.nextError = undefined;
+      throw err;
+    }
     const wamid = `wamid.HBgM${crypto.randomBytes(8).toString("hex")}`;
     this.sentTexts.push({
       phoneNumberId,

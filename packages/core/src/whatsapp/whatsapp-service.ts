@@ -17,6 +17,7 @@ import { triggerRules } from "../rules/rule-runner.js";
 import {
   WhatsAppApiClient,
   DefaultWhatsAppApiClient,
+  WhatsAppApiError,
 } from "./whatsapp-client.js";
 import { findWhatsAppIntegrationByPhoneNumberId } from "./whatsapp-integration-service.js";
 import { getDecryptedWhatsAppIntegration } from "../integrations/credential-service.js";
@@ -30,198 +31,11 @@ export interface ProcessWebhookResult {
 
 import type { TransactionClient } from "../crm/audit-helper.js";
 
-export interface EnqueueWhatsAppInput {
-  phoneNumberId: string;
-  recipientPhone: string;
-  messageType: "template" | "text";
-  text?: string;
-  templateName?: string;
-  languageCode?: string;
-  variables?: string[];
-  leadId?: string | null;
-  messageId?: string;
-}
-
-/**
- * Core transactional helper that persists a PENDING message and enqueues an outbox event.
- * Shared by direct WhatsApp send, Smart Rules engine, and future AI dispatchers.
- * Enforces real API idempotency via (organization_id, idempotency_key).
- */
-export async function enqueueWhatsAppOutbound(
-  tx: TransactionClient,
-  context: TenantContext,
-  input: EnqueueWhatsAppInput,
-  idempotencyKey?: string,
-): Promise<WhatsAppMessageRecord & { outboxId?: string }> {
-  // 1. Idempotent check: if idempotencyKey is supplied, return existing message if already enqueued
-  if (idempotencyKey) {
-    const existingKeyRes = await tx.query(
-      `SELECT id, organization_id, wamid, lead_id, direction, sender_phone,
-              recipient_phone, message_type, body, status, created_at
-       FROM whatsapp_messages
-       WHERE organization_id = $1 AND idempotency_key = $2
-       LIMIT 1`,
-      [context.organizationId, idempotencyKey],
-    );
-    if (existingKeyRes.rows.length > 0) {
-      const msg = existingKeyRes.rows[0];
-      const existingOutbox = await tx.query(
-        `SELECT id FROM outbox_events WHERE organization_id = $1 AND idempotency_key = $2 LIMIT 1`,
-        [context.organizationId, idempotencyKey],
-      );
-      return {
-        id: msg.id,
-        organizationId: msg.organization_id,
-        wamid: msg.wamid,
-        leadId: msg.lead_id,
-        direction: msg.direction,
-        senderPhone: msg.sender_phone,
-        recipientPhone: msg.recipient_phone,
-        messageType: msg.message_type,
-        body: msg.body,
-        status: msg.status,
-        createdAt: msg.created_at,
-        outboxId: existingOutbox.rows[0]?.id,
-      };
-    }
-  }
-
-  // 2. If explicit messageId is supplied, check if already exists
-  if (input.messageId) {
-    const existingIdRes = await tx.query(
-      `SELECT id, organization_id, wamid, lead_id, direction, sender_phone,
-              recipient_phone, message_type, body, status, created_at
-       FROM whatsapp_messages
-       WHERE organization_id = $1 AND id = $2
-       LIMIT 1`,
-      [context.organizationId, input.messageId],
-    );
-    if (existingIdRes.rows.length > 0) {
-      const msg = existingIdRes.rows[0];
-      const existingOutbox = await tx.query(
-        `SELECT id FROM outbox_events WHERE organization_id = $1 AND payload->>'messageId' = $2 LIMIT 1`,
-        [context.organizationId, input.messageId],
-      );
-      return {
-        id: msg.id,
-        organizationId: msg.organization_id,
-        wamid: msg.wamid,
-        leadId: msg.lead_id,
-        direction: msg.direction,
-        senderPhone: msg.sender_phone,
-        recipientPhone: msg.recipient_phone,
-        messageType: msg.message_type,
-        body: msg.body,
-        status: msg.status,
-        createdAt: msg.created_at,
-        outboxId: existingOutbox.rows[0]?.id,
-      };
-    }
-  }
-
-  const messageId = input.messageId || crypto.randomUUID();
-  const actualIdempotencyKey =
-    idempotencyKey ||
-    crypto
-      .createHash("sha256")
-      .update(`${context.organizationId}:wa:${messageId}`)
-      .digest("hex");
-
-  const bodyText =
-    input.messageType === "template"
-      ? `Template: ${input.templateName || "default"}`
-      : input.text || "";
-
-  // 3. Atomically persist PENDING message with idempotency_key
-  let msgRes;
-  try {
-    msgRes = await tx.query(
-      `INSERT INTO whatsapp_messages (
-        id, organization_id, idempotency_key, wamid, lead_id, direction, sender_phone,
-        recipient_phone, message_type, body, status
-      ) VALUES ($1, $2, $3, NULL, $4, 'OUTBOUND', $5, $6, $7, $8, 'PENDING')
-      RETURNING *`,
-      [
-        messageId,
-        context.organizationId,
-        actualIdempotencyKey,
-        input.leadId || null,
-        input.phoneNumberId,
-        input.recipientPhone,
-        input.messageType,
-        bodyText,
-      ],
-    );
-  } catch (err: any) {
-    if (err.code === "23505") {
-      const conflictRes = await tx.query(
-        `SELECT id, organization_id, wamid, lead_id, direction, sender_phone,
-                recipient_phone, message_type, body, status, created_at
-         FROM whatsapp_messages
-         WHERE organization_id = $1 AND (idempotency_key = $2 OR id = $3)
-         LIMIT 1`,
-        [context.organizationId, actualIdempotencyKey, messageId],
-      );
-      if (conflictRes.rows.length > 0) {
-        const msg = conflictRes.rows[0];
-        const existingOutbox = await tx.query(
-          `SELECT id FROM outbox_events WHERE organization_id = $1 AND (idempotency_key = $2 OR payload->>'messageId' = $3) LIMIT 1`,
-          [context.organizationId, actualIdempotencyKey, messageId],
-        );
-        return {
-          id: msg.id,
-          organizationId: msg.organization_id,
-          wamid: msg.wamid,
-          leadId: msg.lead_id,
-          direction: msg.direction,
-          senderPhone: msg.sender_phone,
-          recipientPhone: msg.recipient_phone,
-          messageType: msg.message_type,
-          body: msg.body,
-          status: msg.status,
-          createdAt: msg.created_at,
-          outboxId: existingOutbox.rows[0]?.id,
-        };
-      }
-    }
-    throw err;
-  }
-
-  // 4. Enqueue into transactional outbox
-  const outboxId = await enqueueOutboxEvent(
-    tx,
-    context,
-    "whatsapp.send_outbound",
-    {
-      messageId,
-      phoneNumberId: input.phoneNumberId,
-      recipientPhone: input.recipientPhone,
-      messageType: input.messageType,
-      bodyText,
-      templateName: input.templateName,
-      languageCode: input.languageCode,
-      variables: input.variables,
-      leadId: input.leadId,
-    },
-    actualIdempotencyKey,
-  );
-
-  const msg = msgRes.rows[0];
-  return {
-    id: msg.id,
-    organizationId: msg.organization_id,
-    wamid: msg.wamid,
-    leadId: msg.lead_id,
-    direction: msg.direction,
-    senderPhone: msg.sender_phone,
-    recipientPhone: msg.recipient_phone,
-    messageType: msg.message_type,
-    body: msg.body,
-    status: msg.status,
-    createdAt: msg.created_at,
-    outboxId,
-  };
-}
+export {
+  enqueueWhatsAppOutbound,
+  type EnqueueWhatsAppInput,
+} from "./whatsapp-outbox-service.js";
+import { enqueueWhatsAppOutbound } from "./whatsapp-outbox-service.js";
 
 /**
  * Enqueues an outbound WhatsApp message (Template or Free-form text) into the transactional outbox.
@@ -309,6 +123,13 @@ export async function handleWhatsAppOutboundEvent(
     );
   }
 
+  // Terminal failure check: if message was already marked FAILED, terminate
+  if (currentMsg.status === "FAILED") {
+    throw new TerminalOutboxError(
+      `Message ${messageId} is in FAILED status; outbox processing terminated.`,
+    );
+  }
+
   // Recovery ambiguity check: if message was already marked SENDING, an earlier worker crashed mid-flight.
   // Transition to UNKNOWN and throw TerminalOutboxError to prevent duplicate dispatch.
   if (currentMsg.status === "SENDING") {
@@ -365,6 +186,45 @@ export async function handleWhatsAppOutboundEvent(
       wamid = res.wamid;
     }
   } catch (err: any) {
+    if (err instanceof WhatsAppApiError) {
+      if (err.isAmbiguous) {
+        await withTenantContext(context.organizationId, async (tx) => {
+          await tx.query(
+            `UPDATE whatsapp_messages SET status = 'UNKNOWN' WHERE id = $1 AND organization_id = $2`,
+            [messageId, context.organizationId],
+          );
+        });
+        throw new TerminalOutboxError(
+          `Ambiguous network dispatch failure: ${err.message}. Transitioned message ${messageId} to UNKNOWN; blind retry suppressed pending webhook reconciliation.`,
+        );
+      }
+
+      if (!err.retryable) {
+        await withTenantContext(context.organizationId, async (tx) => {
+          await tx.query(
+            `UPDATE whatsapp_messages SET status = 'FAILED' WHERE id = $1 AND organization_id = $2`,
+            [messageId, context.organizationId],
+          );
+        });
+        throw new TerminalOutboxError(
+          `Terminal WhatsApp provider failure (${err.statusCode}): ${err.message}`,
+        );
+      }
+
+      // Retryable error (429 Rate Limit or 5xx Server Outage)
+      // Reset message status to PENDING so next worker attempt can claim and dispatch
+      await withTenantContext(context.organizationId, async (tx) => {
+        await tx.query(
+          `UPDATE whatsapp_messages SET status = 'PENDING' WHERE id = $1 AND organization_id = $2`,
+          [messageId, context.organizationId],
+        );
+      });
+      // Throw standard Error (NOT TerminalOutboxError) so outbox worker increments retry_count and retries!
+      throw new Error(
+        `Retryable WhatsApp provider failure (${err.statusCode}): ${err.message}`,
+      );
+    }
+
     const isAmbiguousNetworkError =
       err.code === "ECONNRESET" ||
       err.code === "ETIMEDOUT" ||
