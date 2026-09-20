@@ -207,7 +207,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
           ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
-          ALLOW_LOCAL_DEV_CREDS: "true"
           VERIFY_RUNTIME_DB_ROLE: "true"
           EXPECTED_DATABASE_ROLE: app_user
           CI: "true"
@@ -219,7 +218,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
           ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
-          ALLOW_LOCAL_DEV_CREDS: "true"
           VERIFY_RUNTIME_DB_ROLE: "true"
           EXPECTED_DATABASE_ROLE: app_user
           CI: "true"
