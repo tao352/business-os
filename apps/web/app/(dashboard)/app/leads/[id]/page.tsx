@@ -2,7 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { getLeadWorkspace } from "@business-os/core";
+import { getLeadWorkspace, can } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { LeadActionsBar } from "@/features/leads/lead-actions-bar";
@@ -27,6 +27,8 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   }
 
   const { lead, assignedName, activities, tasks, members } = workspace;
+  const canUpdateLead = can(context, "update", "lead", lead);
+  const canReassignLead = can(context, "update_all", "lead");
 
   return (
     <div className="space-y-6">
@@ -71,6 +73,8 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
           currentAssigneeId={lead.assigned_user_id}
           userRole={context.role}
           members={members}
+          canUpdateLead={canUpdateLead}
+          canReassignLead={canReassignLead}
         />
       </div>
 
@@ -103,6 +107,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
               assigned_name: assignedName,
             }}
             tasks={tasks}
+            canCompleteTasks={canUpdateLead}
           />
         </div>
       </div>

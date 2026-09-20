@@ -64,6 +64,44 @@ async function main() {
     [orgA.id, userMarketing.id],
   );
 
+  // Seed Finance User in Tenant A
+  const emailFinance = `e2e.finance.${uniqueA}@business-os.test`;
+  const passwordFinance = "Password123!Secure";
+  const userFinance = await registerUser({
+    email: emailFinance,
+    password: passwordFinance,
+    fullName: "Farah Finance Manager",
+  });
+
+  await pool.query(
+    `INSERT INTO organization_memberships (organization_id, user_id, role, is_active)
+     VALUES ($1, $2, 'FINANCE', true)`,
+    [orgA.id, userFinance.id],
+  );
+
+  // Seed Read Only User in Tenant A
+  const emailReadOnly = `e2e.readonly.${uniqueA}@business-os.test`;
+  const passwordReadOnly = "Password123!Secure";
+  const userReadOnly = await registerUser({
+    email: emailReadOnly,
+    password: passwordReadOnly,
+    fullName: "Rami Read Only Auditor",
+  });
+
+  await pool.query(
+    `INSERT INTO organization_memberships (organization_id, user_id, role, is_active)
+     VALUES ($1, $2, 'READ_ONLY', true)`,
+    [orgA.id, userReadOnly.id],
+  );
+
+  // Seed Open Task on Lead A
+  await pool.query(
+    `INSERT INTO tasks (
+       organization_id, lead_id, assigned_user_id, title, due_date, priority, is_completed
+     ) VALUES ($1, $2, $3, 'Review contract clause 4.1', NOW() + interval '1 day', 'HIGH', false)`,
+    [orgA.id, leadA.id, userA.id],
+  );
+
   // Seed Tenant B (For Cross-Tenant Isolation Negative Test)
   const emailB = `e2e.user.b.${uniqueB}@business-os.test`;
   const passwordB = "Password123!Secure";
@@ -108,6 +146,20 @@ async function main() {
       password: passwordMarketing,
       fullName: "Mona Marketing Specialist",
       role: "MARKETING_USER",
+    },
+    userFinance: {
+      id: userFinance.id,
+      email: emailFinance,
+      password: passwordFinance,
+      fullName: "Farah Finance Manager",
+      role: "FINANCE",
+    },
+    userReadOnly: {
+      id: userReadOnly.id,
+      email: emailReadOnly,
+      password: passwordReadOnly,
+      fullName: "Rami Read Only Auditor",
+      role: "READ_ONLY",
     },
     orgA: { id: orgA.id, name: orgA.name, slug: orgA.slug },
     leadA: {

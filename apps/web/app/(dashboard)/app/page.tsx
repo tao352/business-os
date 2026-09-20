@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Clock } from "lucide-react";
-import { getDashboardOverview } from "@business-os/core";
+import { getDashboardOverview, can } from "@business-os/core";
 import { requireTenantContext, getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/features/dashboard/dashboard-kpis";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { completeTaskAction } from "@/lib/actions/lead-actions";
 export default async function DashboardPage() {
   const context = await requireTenantContext();
   const session = await getSessionUser();
+  const canMutateLeads = can(context, "update", "lead");
 
   // Fetch operational dashboard overview via core read-model service
   const stats = await getDashboardOverview(context);
@@ -113,38 +114,47 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <div className="divide-y divide-line-subtle -mx-5 px-5">
-              {dueTasks.map((task: any) => (
-                <div
-                  key={task.id}
-                  className="py-3 flex items-center justify-between"
-                >
-                  <div className="min-w-0 pr-3">
-                    <div className="text-xs font-medium text-ink truncate">
-                      {task.title}
-                    </div>
-                    <div className="text-[11px] text-ink-faint flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3 h-3 text-ink-faint shrink-0" />
-                      <span>Due {formatDate(task.due_date)}</span>
-                      {task.assignee_name && (
-                        <span>• {task.assignee_name}</span>
-                      )}
-                    </div>
-                  </div>
-                  <form
-                    action={async () => {
-                      "use server";
-                      await completeTaskAction(task.id);
-                    }}
+              {dueTasks.map((task: any) => {
+                const canCompleteThisTask =
+                  canMutateLeads &&
+                  (context.role !== "SALESPERSON" ||
+                    task.assigned_user_id === context.userId);
+
+                return (
+                  <div
+                    key={task.id}
+                    className="py-3 flex items-center justify-between"
                   >
-                    <button
-                      type="submit"
-                      className="px-2.5 py-1 text-[11px] font-medium border border-line rounded bg-surface hover:bg-surface-subtle text-ink transition-colors"
-                    >
-                      Complete
-                    </button>
-                  </form>
-                </div>
-              ))}
+                    <div className="min-w-0 pr-3">
+                      <div className="text-xs font-medium text-ink truncate">
+                        {task.title}
+                      </div>
+                      <div className="text-[11px] text-ink-faint flex items-center gap-1 mt-0.5">
+                        <Clock className="w-3 h-3 text-ink-faint shrink-0" />
+                        <span>Due {formatDate(task.due_date)}</span>
+                        {task.assignee_name && (
+                          <span>• {task.assignee_name}</span>
+                        )}
+                      </div>
+                    </div>
+                    {canCompleteThisTask && (
+                      <form
+                        action={async () => {
+                          "use server";
+                          await completeTaskAction(task.id);
+                        }}
+                      >
+                        <button
+                          type="submit"
+                          className="px-2.5 py-1 text-[11px] font-medium border border-line rounded bg-surface hover:bg-surface-subtle text-ink transition-colors"
+                        >
+                          Complete
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

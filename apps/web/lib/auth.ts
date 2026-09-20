@@ -7,6 +7,8 @@ import {
   verifyTenantToken,
   AuthenticationError,
   AuthorizationError,
+  getUiCapabilities,
+  type UiCapabilities,
 } from "@business-os/core";
 
 export const SESSION_COOKIE_NAME = "business_os_session";
@@ -16,6 +18,7 @@ export interface SessionUser {
   email: string;
   fullName: string;
   role: TenantRole;
+  capabilities: UiCapabilities;
   activeOrganization: {
     id: string;
     name: string;
@@ -98,11 +101,19 @@ export async function getSessionUser(): Promise<SessionUser | null> {
         return null;
       }
 
+      const role = activeOrg.role as TenantRole;
+      const capabilities = getUiCapabilities({
+        organizationId: activeOrg.id,
+        userId: user.id,
+        role,
+      });
+
       return {
         id: user.id,
         email: user.email,
         fullName: user.full_name,
-        role: activeOrg.role as TenantRole,
+        role,
+        capabilities,
         activeOrganization: {
           id: activeOrg.id,
           name: activeOrg.name,

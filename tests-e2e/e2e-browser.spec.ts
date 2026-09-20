@@ -233,4 +233,101 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       (await page.locator("body").innerText()).includes("404");
     expect(isIntegrations404).toBe(true);
   });
+
+  test("6. Capability-aware navigation: FINANCE role sees Units but not Projects or privileged items", async ({
+    page,
+  }) => {
+    // Clear cookies and authenticate as FINANCE user
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userFinance.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userFinance.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/app(\?.*)?$/);
+    await expect(page.locator("body")).toContainText("FINANCE");
+
+    // Authoritative navigation verification:
+    // FINANCE can read units -> Units MUST be visible
+    await expect(page.locator('aside a[href="/app/units"]')).toBeVisible();
+
+    // FINANCE cannot read projects -> Projects MUST NOT be visible
+    await expect(
+      page.locator('aside a[href="/app/projects"]'),
+    ).not.toBeVisible();
+
+    // Privileged system items MUST NOT be visible
+    await expect(
+      page.locator('aside a[href="/app/automations"]'),
+    ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/integrations"]'),
+    ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/settings"]'),
+    ).not.toBeVisible();
+
+    // Topbar 'New Lead' button MUST NOT be visible
+    await expect(
+      page.locator('header button:has-text("New Lead")'),
+    ).not.toBeVisible();
+  });
+
+  test("7. Capability-aware UI and mutation gating: READ_ONLY role sees sanitized breadcrumbs, read-only lead view, and no task completion buttons", async ({
+    page,
+  }) => {
+    // Clear cookies and authenticate as READ_ONLY user
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userReadOnly.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userReadOnly.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/app(\?.*)?$/);
+    await expect(page.locator("body")).toContainText("READ_ONLY");
+
+    // Topbar 'New Lead' button MUST NOT be visible on Dashboard
+    await expect(
+      page.locator('header button:has-text("New Lead")'),
+    ).not.toBeVisible();
+
+    // Dashboard follow-up tasks MUST NOT render the 'Complete' button
+    await expect(page.locator('button:has-text("Complete")')).not.toBeVisible();
+
+    // Navigate to lead workspace
+    const leadDetailUrl = `/app/leads/${fixtures.leadA.id}`;
+    await page.goto(leadDetailUrl);
+    await page.waitForURL(new RegExp(`/app/leads/${fixtures.leadA.id}`));
+
+    // Breadcrumb verification: raw UUID MUST be sanitized to 'Lead Details'
+    const breadcrumbNav = page.locator("header nav");
+    await expect(breadcrumbNav).toContainText("Lead Details");
+    await expect(breadcrumbNav).not.toContainText(fixtures.leadA.id);
+
+    // Lead action bar MUST render clean 'Read-only view' badge
+    await expect(page.locator("body")).toContainText("Read-only view");
+
+    // Mutation action buttons MUST NOT be visible
+    await expect(
+      page.getByRole("button", { name: /change status/i }),
+    ).not.toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /add note/i }),
+    ).not.toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /follow-up/i }),
+    ).not.toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /reassign/i }),
+    ).not.toBeVisible();
+
+    // Side panel open tasks MUST NOT render the complete button checkbox
+    await expect(
+      page.locator('button[title="Mark complete"]'),
+    ).not.toBeVisible();
+  });
 });

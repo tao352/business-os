@@ -15,6 +15,8 @@ interface LeadActionsBarProps {
   currentAssigneeId?: string | null;
   userRole: TenantRole;
   members: Array<{ user_id: string; full_name: string; role: string }>;
+  canUpdateLead?: boolean;
+  canReassignLead?: boolean;
 }
 
 export function LeadActionsBar({
@@ -23,6 +25,8 @@ export function LeadActionsBar({
   currentAssigneeId,
   userRole,
   members,
+  canUpdateLead = true,
+  canReassignLead,
 }: LeadActionsBarProps) {
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [isTaskOpen, setIsTaskOpen] = useState(false);
@@ -30,42 +34,58 @@ export function LeadActionsBar({
   const [isReassignOpen, setIsReassignOpen] = useState(false);
 
   const canReassign =
-    userRole === "OWNER" ||
-    userRole === "ADMIN" ||
-    userRole === "SALES_MANAGER";
+    canReassignLead !== undefined
+      ? canReassignLead
+      : userRole === "OWNER" ||
+        userRole === "ADMIN" ||
+        userRole === "SALES_MANAGER";
+
+  if (!canUpdateLead && !canReassign) {
+    return (
+      <div className="flex items-center">
+        <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-surface-muted text-ink-muted text-xs font-medium border border-line">
+          Read-only view
+        </span>
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={() => setIsStatusOpen(true)}
-          className="text-xs"
-        >
-          <CheckCircle className="w-3.5 h-3.5 mr-1.5" />
-          Change Status
-        </Button>
+        {canUpdateLead && (
+          <>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => setIsStatusOpen(true)}
+              className="text-xs"
+            >
+              <CheckCircle className="w-3.5 h-3.5 mr-1.5" />
+              Change Status
+            </Button>
 
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => setIsNoteOpen(true)}
-          className="text-xs"
-        >
-          <FileText className="w-3.5 h-3.5 mr-1.5" />
-          Add Note
-        </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setIsNoteOpen(true)}
+              className="text-xs"
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Add Note
+            </Button>
 
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => setIsTaskOpen(true)}
-          className="text-xs"
-        >
-          <Calendar className="w-3.5 h-3.5 mr-1.5" />
-          Follow-up
-        </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setIsTaskOpen(true)}
+              className="text-xs"
+            >
+              <Calendar className="w-3.5 h-3.5 mr-1.5" />
+              Follow-up
+            </Button>
+          </>
+        )}
 
         {canReassign && (
           <Button

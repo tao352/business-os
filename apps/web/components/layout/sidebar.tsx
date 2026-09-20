@@ -55,32 +55,33 @@ export function Sidebar({ session, onNavClick }: SidebarProps) {
     }
   };
 
-  // Role-aware navigation gating
+  // Capability-aware navigation gating (authoritative matrix-backed)
   const role = session.role;
-  const isPrivileged = role === "OWNER" || role === "ADMIN";
-  const canAccessInventory = role !== "MARKETING_USER";
+  const caps = session.capabilities;
 
   const workspaceItems = [
     { label: "Overview", href: "/app", icon: LayoutDashboard },
     { label: "Leads", href: "/app/leads", icon: Users },
-    ...(canAccessInventory
-      ? [
-          { label: "Projects", href: "/app/projects", icon: Building2 },
-          { label: "Units", href: "/app/units", icon: Boxes },
-        ]
+    ...(caps?.canReadProjects
+      ? [{ label: "Projects", href: "/app/projects", icon: Building2 }]
+      : []),
+    ...(caps?.canReadUnits
+      ? [{ label: "Units", href: "/app/units", icon: Boxes }]
       : []),
   ];
 
-  const intelligenceItems = isPrivileged
+  const intelligenceItems = caps?.canReadAutomations
     ? [{ label: "Automations", href: "/app/automations", icon: Cpu }]
     : [];
 
-  const systemItems = isPrivileged
-    ? [
-        { label: "Integrations", href: "/app/integrations", icon: Share2 },
-        { label: "Settings", href: "/app/settings", icon: Settings },
-      ]
-    : [];
+  const systemItems = [
+    ...(caps?.canReadIntegrations
+      ? [{ label: "Integrations", href: "/app/integrations", icon: Share2 }]
+      : []),
+    ...(caps?.canReadSettings
+      ? [{ label: "Settings", href: "/app/settings", icon: Settings }]
+      : []),
+  ];
 
   const navSections = [
     {

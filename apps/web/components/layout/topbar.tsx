@@ -9,9 +9,14 @@ import { Button } from "@/components/ui/button";
 interface TopBarProps {
   onNewLeadClick?: () => void;
   onMenuClick?: () => void;
+  canCreateLead?: boolean;
 }
 
-export function TopBar({ onNewLeadClick, onMenuClick }: TopBarProps) {
+export function TopBar({
+  onNewLeadClick,
+  onMenuClick,
+  canCreateLead = true,
+}: TopBarProps) {
   const pathname = usePathname();
 
   // Generate breadcrumb segments from pathname
@@ -41,8 +46,13 @@ export function TopBar({ onNewLeadClick, onMenuClick }: TopBarProps) {
           {segments.map((seg, idx) => {
             const href = "/" + segments.slice(0, idx + 1).join("/");
             const isLast = idx === segments.length - 1;
-            const label =
-              seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, " ");
+            const isUuid =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                seg,
+              );
+            const label = isUuid
+              ? "Lead Details"
+              : seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, " ");
 
             return (
               <React.Fragment key={href}>
@@ -67,7 +77,7 @@ export function TopBar({ onNewLeadClick, onMenuClick }: TopBarProps) {
 
       {/* Right Actions */}
       <div className="flex items-center gap-3">
-        {onNewLeadClick && (
+        {onNewLeadClick && canCreateLead && (
           <Button
             size="sm"
             variant="primary"

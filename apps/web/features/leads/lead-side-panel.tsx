@@ -24,9 +24,14 @@ interface LeadSidePanelProps {
     priority?: string;
     is_completed: boolean;
   }>;
+  canCompleteTasks?: boolean;
 }
 
-export function LeadSidePanel({ lead, tasks }: LeadSidePanelProps) {
+export function LeadSidePanel({
+  lead,
+  tasks,
+  canCompleteTasks = true,
+}: LeadSidePanelProps) {
   const openTasks = tasks.filter((t) => !t.is_completed);
   const customEntries = Object.entries(lead.custom_data || {}).filter(
     ([, v]) => v !== null && v !== undefined && v !== "",
@@ -117,20 +122,22 @@ export function LeadSidePanel({ lead, tasks }: LeadSidePanelProps) {
                     <span>Due {formatDate(t.due_date)}</span>
                   </div>
                 </div>
-                <form
-                  action={async () => {
-                    "use server";
-                    await completeTaskAction(t.id, lead.id);
-                  }}
-                >
-                  <button
-                    type="submit"
-                    title="Mark complete"
-                    className="p-1 text-ink-muted hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors"
+                {canCompleteTasks && (
+                  <form
+                    action={async () => {
+                      "use server";
+                      await completeTaskAction(t.id, lead.id);
+                    }}
                   >
-                    <Check className="w-3.5 h-3.5" />
-                  </button>
-                </form>
+                    <button
+                      type="submit"
+                      title="Mark complete"
+                      className="p-1 text-ink-muted hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                )}
               </li>
             ))}
           </ul>

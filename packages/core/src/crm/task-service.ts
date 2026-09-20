@@ -25,20 +25,48 @@ export interface ListTasksFilters {
 
 /**
  * Creates a follow-up task with a deadline.
+ * Enforces lead update permission, row-level ownership, and active assignee membership.
  */
 export async function createTask(
   context: TenantContext,
   input: CreateTaskInput,
 ) {
-  // Salesperson can create tasks for themselves, managers can create for anyone
-  if (
-    context.role === "SALESPERSON" &&
-    input.assignedUserId !== context.userId
-  ) {
-    input.assignedUserId = context.userId;
-  }
-
   return await withTenantContext(context.organizationId, async (tx) => {
+    // 1. If associated with a lead, verify lead exists and assert row-level update permission
+    if (input.leadId) {
+      assertCanAccessIndividualLeadRecords(context);
+      const leadRes = await tx.query("SELECT * FROM leads WHERE id = $1", [
+        input.leadId,
+      ]);
+      if (leadRes.rows.length === 0) {
+        throw new Error("Lead not found");
+      }
+      const targetLead = leadRes.rows[0];
+      assertPermission(context, "update", "lead", targetLead);
+    } else {
+      assertPermission(context, "update", "lead");
+    }
+
+    // 2. Salesperson can create tasks for themselves, managers can create for anyone
+    let effectiveAssignee = input.assignedUserId;
+    if (context.role === "SALESPERSON") {
+      effectiveAssignee = context.userId;
+    }
+
+    // 3. Verify assignee is an active member of this organization
+    const userRes = await tx.query(
+      `SELECT u.id
+       FROM users u
+       JOIN organization_memberships m ON m.user_id = u.id
+       WHERE u.id = $1 AND m.organization_id = $2 AND m.is_active = true AND u.is_active = true`,
+      [effectiveAssignee, context.organizationId],
+    );
+    if (userRes.rows.length === 0) {
+      throw new Error(
+        "Assigned user is not an active member of this organization",
+      );
+    }
+
     const res = await tx.query(
       `INSERT INTO tasks (
         organization_id, lead_id, assigned_user_id, title,
@@ -48,7 +76,7 @@ export async function createTask(
       [
         context.organizationId,
         input.leadId || null,
-        input.assignedUserId,
+        effectiveAssignee,
         input.title.trim(),
         input.description?.trim() || null,
         input.dueDate,
@@ -116,8 +144,12 @@ export async function listTasks(
 
 /**
  * Marks a task as completed.
+ * Enforces lead update authorization, role boundaries, and salesperson task ownership.
  */
 export async function completeTask(context: TenantContext, taskId: string) {
+  // Reject roles without lead update capability (e.g. READ_ONLY, MARKETING_USER)
+  assertPermission(context, "update", "lead");
+
   return await withTenantContext(context.organizationId, async (tx) => {
     const existing = await tx.query("SELECT * FROM tasks WHERE id = $1", [
       taskId,
@@ -127,6 +159,18 @@ export async function completeTask(context: TenantContext, taskId: string) {
     }
 
     const task = existing.rows[0];
+
+    // If associated with a lead, verify row-level lead authorization
+    if (task.lead_id) {
+      const leadRes = await tx.query("SELECT * FROM leads WHERE id = $1", [
+        task.lead_id,
+      ]);
+      if (leadRes.rows.length > 0) {
+        assertPermission(context, "update", "lead", leadRes.rows[0]);
+      }
+    }
+
+    // Salesperson can only complete tasks assigned to themselves
     if (
       context.role === "SALESPERSON" &&
       task.assigned_user_id !== context.userId

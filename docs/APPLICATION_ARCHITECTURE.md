@@ -78,9 +78,20 @@
   - `getIntegrationStatus(context)`: Channel status querying `meta_integrations` and `whatsapp_integrations` without secret leakage.
   - `listAutomationRules(context)`: Event-driven rules querying `automation_rules` with truthful `trigger_type`.
   - `getOrganizationSettings(context)`: Active workspace settings and authorized team roster.
-- **Server-Side PII Privacy Protection:** Read models enforce field-level redaction at the data layer. When queried by users with `MARKETING_USER` role, customer contact details (`full_name`, `phone`, `email`) are masked, and `contact_info_redacted: true` is attached.
+- **Strict MARKETING_USER Aggregate-Only Policy:** The `MARKETING_USER` role is strictly confined to aggregated/reporting analytics and barred from individual customer records at the core layer via `assertCanAccessIndividualLeadRecords(context)`. Core services (`getLead`, `listLeads`, `listLeadActivities`, `listTasks`, `createTask`, `completeTask`, `logActivity`) fail closed with typed `ForbiddenError` when called by `MARKETING_USER`.
+- **Row-Level Mutation Authorization & Atomic Rollback:**
+  - `logActivity(context, input)`: Asserts individual lead access, loads the target lead inside the database transaction, and calls `assertPermission(context, "update", "lead", targetLead)` _before_ updating `leads.last_contacted_at` or inserting the activity. If an unauthorized agent calls `logActivity`, the transaction immediately aborts without updating timestamps.
+  - `createTask(context, input)`: Loads the target lead within the transaction and asserts row-level update permission; enforces that `SALESPERSON` can only assign to themselves; and verifies that the assignee is an active member of the tenant organization.
+  - `completeTask(context, taskId)`: Asserts static lead update permission (immediately blocking `READ_ONLY` and `MARKETING_USER`), verifies row-level authorization against the associated lead, and strictly forbids `SALESPERSON` from completing tasks assigned to other agents.
 - **Salesperson Scoping Isolation:** When accessed by users with `SALESPERSON` role, leads and activity streams are strictly scoped to leads assigned to `context.userId`.
-- **Permissions & RBAC Matrix:** Before any mutation or sensitive read, the service invokes `assertPermission(context, action, resource, targetEntity)` ensuring RBAC rules and row-level ownership constraints are preserved.
+- **Permissions & Authoritative Capability Model:**
+  - `getUiCapabilities(context)` resolves typed, matrix-backed capability flags (`canCreateLead`, `canReadProjects`, `canReadUnits`, `canReadAutomations`, `canReadIntegrations`, `canReadSettings`, `canExportLeads`, `canUpdateAllLeads`).
+  - Presentation components use these capabilities rather than guessing permissions from roles:
+    - **Sidebar Navigation:** Renders "Projects" only if `canReadProjects` (e.g. omitted for `FINANCE`) and "Units" only if `canReadUnits` (visible for `FINANCE`), while omitting privileged system items for non-admin roles.
+    - **Topbar:** Suppresses "New Lead" action button if `!canCreateLead` (e.g. for `READ_ONLY`, `FINANCE`, `MARKETING_USER`).
+    - **Breadcrumbs:** Sanitizes raw route UUID segments into user-friendly `Lead Details`.
+    - **Lead Action Bar:** Gates "Change Status", "Add Note", "Follow-up", and "Reassign"; renders a clean "Read-only view" badge when mutation permissions are absent.
+    - **Task Completion Controls:** Hides completion triggers on Dashboard and Lead Side Panel for users lacking lead update permissions or non-assigned salespersons.
 
 ### 2.4 Server Actions & Input Validation
 
