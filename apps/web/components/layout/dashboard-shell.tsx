@@ -13,13 +13,36 @@ interface DashboardShellProps {
 
 export function DashboardShell({ session, children }: DashboardShellProps) {
   const [isCreateLeadOpen, setIsCreateLeadOpen] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-canvas text-ink">
-      <Sidebar session={session} />
+      {/* Mobile Backdrop */}
+      {isMobileNavOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setIsMobileNavOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - responsive container */}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out md:static md:translate-x-0 ${
+          isMobileNavOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <Sidebar
+          session={session}
+          onNavClick={() => setIsMobileNavOpen(false)}
+        />
+      </div>
+
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopBar onNewLeadClick={() => setIsCreateLeadOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">
+        <TopBar
+          onNewLeadClick={() => setIsCreateLeadOpen(true)}
+          onMenuClick={() => setIsMobileNavOpen(true)}
+        />
+        <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-[1400px] mx-auto w-full">{children}</div>
         </main>
       </div>

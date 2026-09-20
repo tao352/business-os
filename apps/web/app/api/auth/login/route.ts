@@ -1,20 +1,67 @@
 import { NextResponse } from "next/server";
-import { authenticateUser } from "@business-os/core";
+import { authenticateUser, consumeRateLimit } from "@business-os/core";
+import { logger } from "@business-os/logger";
 import { setSessionCookie } from "@/lib/auth";
 
 export async function POST(request: Request) {
+  let clientIp = "127.0.0.1";
+  let normalizedEmail = "";
+
   try {
+    // 1. Resolve client IP from reverse proxy headers
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    const realIp = request.headers.get("x-real-ip");
+    if (forwardedFor) {
+      clientIp = forwardedFor.split(",")[0].trim();
+    } else if (realIp) {
+      clientIp = realIp.trim();
+    }
+
     const body = await request.json();
     const { email, password } = body;
 
-    if (!email || !password) {
+    if (
+      !email ||
+      typeof email !== "string" ||
+      !password ||
+      typeof password !== "string"
+    ) {
       return NextResponse.json(
         { error: "Email and password are required" },
         { status: 400 },
       );
     }
 
-    const result = await authenticateUser(email, password);
+    normalizedEmail = email.trim().toLowerCase();
+
+    // 2. Sliding-window rate limit protection against brute-force attacks (5 attempts per minute)
+    const rateLimitKey = `auth:login:${clientIp}:${normalizedEmail}`;
+    const rateLimitResult = await consumeRateLimit(rateLimitKey, {
+      maxRequests: 5,
+      windowMs: 60000,
+      keyPrefix: "login_limit",
+    });
+
+    if (!rateLimitResult.allowed) {
+      logger.warn(
+        { clientIp, email: normalizedEmail },
+        "Login rate limit exceeded",
+      );
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "60",
+            "X-RateLimit-Limit": "5",
+            "X-RateLimit-Remaining": "0",
+          },
+        },
+      );
+    }
+
+    // 3. Attempt Authentication
+    const result = await authenticateUser(normalizedEmail, password);
 
     if (!result.primaryToken) {
       return NextResponse.json(
@@ -28,14 +75,30 @@ export async function POST(request: Request) {
 
     await setSessionCookie(result.primaryToken);
 
+    logger.info(
+      { userId: result.user.id, email: normalizedEmail },
+      "User authenticated successfully",
+    );
+
     return NextResponse.json({
       success: true,
       user: result.user,
       organizations: result.organizations,
     });
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : "Authentication failed";
-    return NextResponse.json({ error: message }, { status: 401 });
+    // Prevent account state disclosure: log detailed failure reason on server only
+    logger.warn(
+      {
+        clientIp,
+        email: normalizedEmail,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "Authentication failed for user",
+    );
+
+    return NextResponse.json(
+      { error: "Invalid email or password" },
+      { status: 401 },
+    );
   }
 }

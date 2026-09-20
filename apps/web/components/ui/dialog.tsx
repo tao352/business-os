@@ -43,7 +43,11 @@ export function Dialog({
       />
 
       {/* Modal Card */}
-      <div className="relative z-10 w-full max-w-lg bg-surface border border-line rounded-xl shadow-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative z-10 w-full max-w-lg bg-surface border border-line rounded-xl shadow-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
             <h3 className="text-base font-semibold text-ink">{title}</h3>

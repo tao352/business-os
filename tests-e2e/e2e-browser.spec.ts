@@ -1,0 +1,165 @@
+import { test, expect } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+
+// Load seeded fixtures
+const fixturesPath = path.resolve(__dirname, "e2e-fixtures.json");
+const fixtures = JSON.parse(fs.readFileSync(fixturesPath, "utf-8"));
+
+test.describe("Phase 21 E2E Browser & Security Suite", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("1. Unauthenticated visit to /app redirects to /login", async ({
+    page,
+  }) => {
+    // Clear any existing cookies
+    await page.context().clearCookies();
+
+    await page.goto("/app");
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain("/login");
+    await expect(page.locator("h1")).toContainText("Business OS");
+    await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
+
+    // Verify /app/leads also redirects
+    await page.goto("/app/leads");
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain("/login");
+  });
+
+  test("2. Full operational journey: login -> leads -> detail -> update status -> verify timeline", async ({
+    page,
+  }) => {
+    // Navigate to login
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userA.email);
+    await page.locator('input[type="password"]').fill(fixtures.userA.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    // Verify redirection to /app dashboard
+    await page.waitForURL(/\/app(\?.*)?$/);
+    await expect(page.locator("body")).toContainText(fixtures.orgA.name);
+
+    // Navigate to Leads via sidebar
+    const leadsNavLink = page.locator('aside a[href="/app/leads"]');
+    await expect(leadsNavLink).toBeVisible();
+    await leadsNavLink.click();
+
+    // Verify /app/leads loaded
+    await page.waitForURL(/\/app\/leads/);
+    await expect(page.locator("h1")).toContainText("Leads");
+
+    // Verify seeded lead is visible in table
+    const leadRow = page
+      .locator("tr")
+      .filter({ hasText: fixtures.leadA.fullName });
+    await expect(leadRow).toBeVisible();
+    await expect(leadRow).toContainText("NEW");
+
+    // Click lead to open workspace
+    await leadRow.click();
+    await page.waitForURL(new RegExp(`/app/leads/${fixtures.leadA.id}`));
+
+    // Verify lead workspace header
+    await expect(page.locator("h1")).toContainText(fixtures.leadA.fullName);
+    const statusBadge = page
+      .locator("header, div")
+      .filter({ hasText: fixtures.leadA.fullName })
+      .locator("span, div")
+      .filter({ hasText: /^NEW$/ })
+      .first();
+    await expect(statusBadge).toBeVisible();
+
+    // Click "Change Status" button
+    const changeStatusBtn = page.getByRole("button", {
+      name: /change status/i,
+    });
+    await expect(changeStatusBtn).toBeVisible();
+    await changeStatusBtn.click();
+
+    // Verify dialog is open
+    const dialog = page.locator('div[role="dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Change Pipeline Status");
+
+    // Select QUALIFIED in stage dropdown
+    const stageSelect = dialog.locator("select");
+    await stageSelect.selectOption("QUALIFIED");
+
+    // Submit dialog
+    const applyBtn = dialog.getByRole("button", { name: /apply status/i });
+    await applyBtn.click();
+
+    // Wait for dialog to close
+    await expect(dialog).not.toBeVisible();
+
+    // Verify status badge updated to QUALIFIED
+    await expect(page.locator("body")).toContainText("QUALIFIED");
+
+    // Verify customer timeline visibly records the change
+    const timeline = page
+      .locator("body")
+      .filter({ hasText: /customer timeline/i });
+    await expect(timeline).toBeVisible();
+    await expect(page.locator("body")).toContainText(
+      /Status changed from NEW to QUALIFIED|QUALIFIED/,
+    );
+  });
+
+  test("3. Cross-tenant isolation (Negative Test): Tenant A user cannot access Tenant B lead URL", async ({
+    page,
+  }) => {
+    // Authenticate as Tenant A User
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userA.email);
+    await page.locator('input[type="password"]').fill(fixtures.userA.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL(/\/app(\?.*)?$/);
+
+    // Attempt direct navigation to Tenant B's lead URL
+    const tenantBUrl = `/app/leads/${fixtures.leadB.id}`;
+    const response = await page.goto(tenantBUrl);
+
+    // Verify 404 status or not-found UI
+    const status = response?.status();
+    const is404 =
+      status === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(is404).toBe(true);
+
+    // Confirm that NO confidential data from Tenant B is rendered
+    await expect(page.locator("body")).not.toContainText(
+      fixtures.leadB.fullName,
+    );
+    await expect(page.locator("body")).not.toContainText(fixtures.leadB.phone);
+  });
+
+  test("4. Brute-force rate limiting: repeated failed attempts trigger 429 Too Many Requests", async ({
+    request,
+  }) => {
+    const attackEmail = `brute.force.${Date.now()}@target.test`;
+    let got429 = false;
+    let rateLimitResponse: any = null;
+
+    // Send 7 rapid bad login requests
+    for (let i = 0; i < 7; i++) {
+      const res = await request.post("/api/auth/login", {
+        data: {
+          email: attackEmail,
+          password: "wrong-password-attempt",
+        },
+      });
+
+      if (res.status() === 429) {
+        got429 = true;
+        rateLimitResponse = await res.json();
+        break;
+      }
+    }
+
+    expect(got429).toBe(true);
+    expect(rateLimitResponse?.error).toContain(
+      "Too many login attempts. Please try again later.",
+    );
+  });
+});

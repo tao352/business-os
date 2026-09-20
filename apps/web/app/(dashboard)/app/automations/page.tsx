@@ -1,5 +1,5 @@
 import React from "react";
-import { withTenantContext } from "@business-os/database";
+import { listAutomationRules } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Cpu } from "lucide-react";
@@ -8,14 +8,8 @@ import { formatDate } from "@/lib/formatters";
 export default async function AutomationsPage() {
   const context = await requireTenantContext();
 
-  const rules = await withTenantContext(context.organizationId, async (tx) => {
-    const res = await tx.query(`
-        SELECT id, name, trigger_event, is_active, created_at, updated_at
-        FROM smart_rules
-        ORDER BY created_at DESC
-      `);
-    return res.rows;
-  });
+  // Fetch automation rules via core read-model service (using real automation_rules schema)
+  const rules = await listAutomationRules(context);
 
   return (
     <div className="space-y-6">
@@ -46,13 +40,13 @@ export default async function AutomationsPage() {
               <thead>
                 <tr className="border-b border-line bg-surface-subtle text-[11px] font-semibold text-ink-muted tracking-wider uppercase select-none">
                   <th className="py-3 px-4">Rule Name</th>
-                  <th className="py-3 px-4">Trigger Event</th>
+                  <th className="py-3 px-4">Trigger Type</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Updated</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line-subtle">
-                {rules.map((rule: any) => (
+                {rules.map((rule) => (
                   <tr
                     key={rule.id}
                     className="hover:bg-surface-subtle transition-colors h-12"
@@ -61,7 +55,7 @@ export default async function AutomationsPage() {
                       {rule.name}
                     </td>
                     <td className="py-2.5 px-4 font-mono text-ink-secondary text-xs">
-                      {rule.trigger_event}
+                      {rule.trigger_type}
                     </td>
                     <td className="py-2.5 px-4">
                       <Badge variant={rule.is_active ? "success" : "neutral"}>

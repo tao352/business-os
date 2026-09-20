@@ -1,24 +1,32 @@
 import React from "react";
-import { withTenantContext } from "@business-os/database";
+import Link from "next/link";
+import { listUnitsInventory } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/formatters";
-import { Boxes } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight } from "lucide-react";
 
-export default async function UnitsPage() {
+interface UnitsPageProps {
+  searchParams: Promise<{
+    page?: string;
+  }>;
+}
+
+export default async function UnitsPage({ searchParams }: UnitsPageProps) {
   const context = await requireTenantContext();
+  const params = await searchParams;
+  const currentPage = Math.max(1, parseInt(params.page || "1", 10));
+  const pageSize = 25;
 
-  const units = await withTenantContext(context.organizationId, async (tx) => {
-    const res = await tx.query(`
-        SELECT u.id, u.unit_number, u.unit_type, u.gross_area, u.price,
-               u.currency, u.status, p.name as project_name
-        FROM units u
-        JOIN projects p ON p.id = u.project_id
-        ORDER BY u.unit_number ASC
-        LIMIT 100
-      `);
-    return res.rows;
+  // Fetch paginated inventory with truthful total count via core read-model service
+  const { units, totalCount } = await listUnitsInventory(context, {
+    page: currentPage,
+    pageSize,
   });
+
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+  const fromRecord = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  const toRecord = Math.min(currentPage * pageSize, totalCount);
 
   return (
     <div className="space-y-6">
@@ -27,8 +35,7 @@ export default async function UnitsPage() {
           Property Inventory Units
         </h1>
         <p className="text-xs text-ink-muted mt-0.5">
-          {units.length} {units.length === 1 ? "unit" : "units"} listed across
-          active projects
+          {totalCount} {totalCount === 1 ? "unit" : "units"} in portfolio
         </p>
       </div>
 
@@ -55,7 +62,7 @@ export default async function UnitsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line-subtle">
-                {units.map((unit: any) => (
+                {units.map((unit) => (
                   <tr
                     key={unit.id}
                     className="hover:bg-surface-subtle transition-colors h-12"
@@ -95,6 +102,57 @@ export default async function UnitsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Truthful Pagination Bar */}
+          <div className="px-4 py-3 border-t border-line bg-surface-subtle flex items-center justify-between text-xs text-ink-muted select-none">
+            <div>
+              Showing <span className="font-medium text-ink">{fromRecord}</span>{" "}
+              to <span className="font-medium text-ink">{toRecord}</span> of{" "}
+              <span className="font-medium text-ink">{totalCount}</span> units
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-ink-faint">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-1">
+                {currentPage > 1 ? (
+                  <Link
+                    href={`/app/units?page=${currentPage - 1}`}
+                    className="p-1 border border-line rounded bg-surface hover:bg-surface-subtle text-ink transition-colors"
+                    aria-label="Previous Page"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </Link>
+                ) : (
+                  <button
+                    disabled
+                    className="p-1 border border-line-subtle rounded bg-surface text-ink-faint cursor-not-allowed opacity-50"
+                    aria-label="Previous Page"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                {currentPage < totalPages ? (
+                  <Link
+                    href={`/app/units?page=${currentPage + 1}`}
+                    className="p-1 border border-line rounded bg-surface hover:bg-surface-subtle text-ink transition-colors"
+                    aria-label="Next Page"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
+                ) : (
+                  <button
+                    disabled
+                    className="p-1 border border-line-subtle rounded bg-surface text-ink-faint cursor-not-allowed opacity-50"
+                    aria-label="Next Page"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

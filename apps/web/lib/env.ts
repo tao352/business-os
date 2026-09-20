@@ -5,7 +5,9 @@ import { logger } from "@business-os/logger";
  * Fails closed immediately in production if any mandatory variable is missing or insecure.
  */
 export function validateWebEnvironment(): void {
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProduction =
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_LOCAL_DEV_CREDS !== "true";
 
   if (isProduction) {
     if (

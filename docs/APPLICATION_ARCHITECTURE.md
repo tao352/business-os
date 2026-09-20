@@ -69,10 +69,25 @@
 ### 2.3 Core Domain Layer (`@business-os/core`)
 
 - Direct programmatic invocation from Server Components and Server Actions.
-- **No duplicate business logic:** Next.js never writes raw SQL in page components; all queries execute through `@business-os/core` domain services (`listLeads`, `createLead`, `updateLeadStatus`, `assignLead`, `logActivity`, `createTask`, etc.).
-- **Permissions:** Before any mutation or sensitive read, the service invokes `assertPermission(context, action, resource, targetEntity)` ensuring RBAC rules and row-level ownership constraints (e.g. `SALESPERSON` row filtering) are enforced.
+- **Zero Raw SQL in Presentation Layer:** Next.js never executes direct SQL queries or accesses database clients in `apps/web/app/**`. All presentation queries are routed strictly through typed read-model services (`packages/core/src/views/read-models.ts`):
+  - `getDashboardOverview(context)`: Aggregated pipeline metrics, recent leads, and salesperson-isolated activity stream.
+  - `listLeadsPage(context, filters)`: Paginated lead listing with search, status filtering, and server-side PII masking.
+  - `getLeadWorkspace(context, leadId)`: Full lead dossier including assignee details, chronological activity timeline, pending tasks, and org members.
+  - `listProjectsOverview(context)`: Truthful inventory overview without fabricated statuses.
+  - `listUnitsInventory(context, filters)`: Paginated units inventory with truthful total count.
+  - `getIntegrationStatus(context)`: Channel status querying `meta_integrations` and `whatsapp_integrations` without secret leakage.
+  - `listAutomationRules(context)`: Event-driven rules querying `automation_rules` with truthful `trigger_type`.
+  - `getOrganizationSettings(context)`: Active workspace settings and authorized team roster.
+- **Server-Side PII Privacy Protection:** Read models enforce field-level redaction at the data layer. When queried by users with `MARKETING_USER` role, customer contact details (`full_name`, `phone`, `email`) are masked, and `contact_info_redacted: true` is attached.
+- **Salesperson Scoping Isolation:** When accessed by users with `SALESPERSON` role, leads and activity streams are strictly scoped to leads assigned to `context.userId`.
+- **Permissions & RBAC Matrix:** Before any mutation or sensitive read, the service invokes `assertPermission(context, action, resource, targetEntity)` ensuring RBAC rules and row-level ownership constraints are preserved.
 
-### 2.4 Database & Row-Level Security (`@business-os/database`)
+### 2.4 Server Actions & Input Validation
+
+- **Zod Schema Validation:** All user mutations in `apps/web/lib/actions/*` and sensitive API route handlers (e.g. `/api/auth/switch-org`) strictly validate inputs using centralized Zod schemas (`apps/web/lib/validations/action-schemas.ts`).
+- **Atomic Sliding-Window Rate Limiting:** `/api/auth/login` uses `consumeRateLimit()` backed by Redis (or in-memory sliding window fallback) keyed by `auth:login:${clientIp}:${normalizedEmail}` to defend against credential brute-forcing and account enumeration without disclosing user account existence.
+
+### 2.5 Database & Row-Level Security (`@business-os/database`)
 
 - **Connection Isolation:** All operations wrap in `withTenantContext(organizationId, callback)`.
 - **PostgreSQL Session Variables:**
@@ -89,4 +104,19 @@
 
 - **Fail-Closed Boot (`validateWebEnvironment`):**
   - In production (`NODE_ENV === 'production'`), startup is immediately halted if `DATABASE_URL`, `JWT_SECRET` (minimum 32 characters), or `ENCRYPTION_KEY` (32 bytes) are missing or set to trivial/dev defaults.
+  - Wire-checked directly on Next.js startup via `apps/web/instrumentation.ts` (`register()` hook).
   - Prevents accidental deployment with insecure fallback configurations.
+
+---
+
+## 4. Browser-Level E2E Verification & Visual QA
+
+- **Playwright Test Suite (`tests-e2e/e2e-browser.spec.ts`):**
+  - Unauthenticated route protection: asserts automatic redirect to `/login` for all `/app/**` routes.
+  - End-to-end operational journey: verifies authentication, dashboard rendering, lead table navigation, workspace inspection, pipeline stage updating to `QUALIFIED`, and live customer timeline record creation.
+  - Cross-tenant isolation negative test: asserts that authenticated user from Tenant A attempting direct navigation to Tenant B's lead URL receives 404 with zero tenant B data disclosure.
+  - Brute-force rate limiting: asserts that rapid failed login attempts trigger HTTP 429 Too Many Requests with standard response.
+- **Visual QA Snapshot Testing (`tests-e2e/visual-qa.spec.ts`):**
+  - Responsive visual regression across Desktop (1440px), Tablet (1024px), and Mobile (390px) viewports.
+  - Off-canvas drawer navigation for small screens with auto-dismissing backdrop and link triggers.
+  - Anti-AI-slop design system verification (zero gratuitous gradients, high contrast typographic hierarchy, truthful state indicators).

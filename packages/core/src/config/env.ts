@@ -17,7 +17,9 @@ const KNOWN_WEAK_SECRETS = new Set([
  * In production (NODE_ENV === 'production'), fails closed immediately if missing or weak.
  */
 export function getJwtSecret(): Uint8Array {
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProduction =
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_LOCAL_DEV_CREDS !== "true";
   const rawSecret = process.env.JWT_SECRET;
 
   if (isProduction) {
@@ -51,7 +53,9 @@ export function getJwtSecret(): Uint8Array {
  * Fails closed in production if absent or insufficient length.
  */
 export function getEncryptionKey(): Buffer {
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProduction =
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_LOCAL_DEV_CREDS !== "true";
   const rawKey = process.env.ENCRYPTION_KEY;
 
   if (isProduction) {

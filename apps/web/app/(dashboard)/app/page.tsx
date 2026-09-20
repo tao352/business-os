@@ -1,8 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Clock } from "lucide-react";
-import { withTenantContext } from "@business-os/database";
-import { listLeads, listTasks } from "@business-os/core";
+import { getDashboardOverview } from "@business-os/core";
 import { requireTenantContext, getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/features/dashboard/dashboard-kpis";
 import { Badge } from "@/components/ui/badge";
@@ -13,54 +12,10 @@ export default async function DashboardPage() {
   const context = await requireTenantContext();
   const session = await getSessionUser();
 
-  // 1. Fetch real operational KPIs within tenant context
-  const stats = await withTenantContext(context.organizationId, async (tx) => {
-    const isSalesperson = context.role === "SALESPERSON";
-    const leadFilter = isSalesperson ? "WHERE assigned_user_id = $1" : "";
-    const taskFilter = isSalesperson
-      ? "WHERE assigned_user_id = $1"
-      : "WHERE 1=1";
-    const params = isSalesperson ? [context.userId] : [];
-
-    const leadCounts = await tx.query(
-      `SELECT
-        COUNT(*) as total_leads,
-        COUNT(*) FILTER (WHERE status = 'NEW') as new_leads
-       FROM leads ${leadFilter}`,
-      params,
-    );
-
-    const taskCounts = await tx.query(
-      `SELECT
-        COUNT(*) FILTER (WHERE is_completed = false) as open_tasks,
-        COUNT(*) FILTER (WHERE is_completed = false AND due_date <= NOW()) as due_followups
-       FROM tasks ${taskFilter}`,
-      params,
-    );
-
-    const activitiesRes = await tx.query(
-      `SELECT a.id, a.lead_id, a.user_id, u.full_name as author_name,
-              l.full_name as lead_name, a.activity_type, a.summary, a.created_at
-       FROM activities a
-       JOIN users u ON u.id = a.user_id
-       LEFT JOIN leads l ON l.id = a.lead_id
-       ORDER BY a.created_at DESC
-       LIMIT 6`,
-    );
-
-    return {
-      totalLeads: parseInt(leadCounts.rows[0]?.total_leads || "0", 10),
-      newLeads: parseInt(leadCounts.rows[0]?.new_leads || "0", 10),
-      openTasks: parseInt(taskCounts.rows[0]?.open_tasks || "0", 10),
-      dueFollowups: parseInt(taskCounts.rows[0]?.due_followups || "0", 10),
-      recentActivities: activitiesRes.rows,
-    };
-  });
-
-  // 2. Fetch Recent Leads and Open Tasks
-  const recentLeads = await listLeads(context, { limit: 5 });
-  const openTasks = await listTasks(context, { isCompleted: false });
-  const dueTasks = openTasks.slice(0, 5);
+  // Fetch operational dashboard overview via core read-model service
+  const stats = await getDashboardOverview(context);
+  const recentLeads = stats.recentLeads;
+  const dueTasks = stats.openTasksList;
 
   return (
     <div className="space-y-6">
@@ -122,10 +77,15 @@ export default async function DashboardPage() {
                 >
                   <div className="min-w-0 pr-3">
                     <div className="text-xs font-medium text-ink truncate">
-                      {lead.full_name}
+                      {lead.contact_info_redacted
+                        ? "[CONFIDENTIAL]"
+                        : lead.full_name}
                     </div>
                     <div className="text-[11px] text-ink-faint truncate mt-0.5">
-                      {lead.phone} • {formatDate(lead.created_at)}
+                      {lead.contact_info_redacted
+                        ? "Contact info redacted"
+                        : lead.phone}{" "}
+                      • {formatDate(lead.created_at)}
                     </div>
                   </div>
                   <Badge status={lead.status}>{lead.status}</Badge>

@@ -8,14 +8,15 @@ import type { LeadStatus } from "@business-os/types";
 
 export interface LeadRow {
   id: string;
-  full_name: string;
-  phone: string;
-  email: string | null;
+  full_name?: string;
+  phone?: string;
+  email?: string | null;
   status: LeadStatus;
   source: string;
   assigned_name?: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+  contact_info_redacted?: boolean;
 }
 
 interface LeadsTableProps {
@@ -74,16 +75,26 @@ export function LeadsTable({
               >
                 <td className="py-2.5 px-4">
                   <div className="font-semibold text-ink text-sm truncate max-w-[200px]">
-                    {lead.full_name}
+                    {lead.contact_info_redacted ? (
+                      <span className="text-ink-muted italic">
+                        [CONFIDENTIAL]
+                      </span>
+                    ) : (
+                      lead.full_name
+                    )}
                   </div>
-                  {lead.email && (
+                  {!lead.contact_info_redacted && lead.email && (
                     <div className="text-[11px] text-ink-muted truncate max-w-[200px]">
                       {lead.email}
                     </div>
                   )}
                 </td>
                 <td className="py-2.5 px-4 font-mono text-ink-secondary text-xs">
-                  {lead.phone}
+                  {lead.contact_info_redacted ? (
+                    <span className="text-ink-faint italic">[REDACTED]</span>
+                  ) : (
+                    lead.phone
+                  )}
                 </td>
                 <td className="py-2.5 px-4">
                   <Badge status={lead.status}>{lead.status}</Badge>

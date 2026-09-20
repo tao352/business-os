@@ -1,6 +1,5 @@
 import React from "react";
-import { withTenantContext } from "@business-os/database";
-import { listOrganizationMembers } from "@business-os/core";
+import { getOrganizationSettings } from "@business-os/core";
 import { requireTenantContext, getSessionUser } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/formatters";
@@ -9,22 +8,8 @@ export default async function SettingsPage() {
   const context = await requireTenantContext();
   const session = await getSessionUser();
 
-  // 1. Fetch Organization Details
-  const org = await withTenantContext(context.organizationId, async (tx) => {
-    const res = await tx.query(
-      "SELECT id, name, slug, plan, created_at FROM organizations WHERE id = $1",
-      [context.organizationId],
-    );
-    return res.rows[0];
-  });
-
-  // 2. Fetch Members
-  let members: any[] = [];
-  try {
-    members = await listOrganizationMembers(context);
-  } catch {
-    // If user lacks permission
-  }
+  // Fetch organization settings & members via core read-model service
+  const { organization: org, members } = await getOrganizationSettings(context);
 
   return (
     <div className="space-y-6 max-w-4xl">

@@ -1,28 +1,13 @@
 import React from "react";
-import { withTenantContext } from "@business-os/database";
+import { listProjectsOverview } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
-import { Badge } from "@/components/ui/badge";
 import { Building2, MapPin } from "lucide-react";
-import { formatDate } from "@/lib/formatters";
 
 export default async function ProjectsPage() {
   const context = await requireTenantContext();
 
-  const projects = await withTenantContext(
-    context.organizationId,
-    async (tx) => {
-      const res = await tx.query(`
-        SELECT p.id, p.name, p.location, p.description, p.total_units, p.created_at,
-               COUNT(u.id) as units_count,
-               COUNT(u.id) FILTER (WHERE u.status = 'AVAILABLE') as available_units
-        FROM projects p
-        LEFT JOIN units u ON u.project_id = p.id
-        GROUP BY p.id
-        ORDER BY p.name ASC
-      `);
-      return res.rows;
-    },
-  );
+  // Fetch real estate projects overview via core read-model service
+  const projects = await listProjectsOverview(context);
 
   return (
     <div className="space-y-6">
@@ -46,7 +31,7 @@ export default async function ProjectsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {projects.map((project: any) => (
+          {projects.map((project) => (
             <div
               key={project.id}
               className="bg-surface border border-line rounded-xl p-5 flex flex-col justify-between"
@@ -56,7 +41,6 @@ export default async function ProjectsPage() {
                   <h2 className="text-sm font-bold text-ink truncate">
                     {project.name}
                   </h2>
-                  <Badge variant="neutral">Active</Badge>
                 </div>
 
                 <div className="flex items-center gap-1.5 text-xs text-ink-secondary mb-3">
@@ -74,7 +58,7 @@ export default async function ProjectsPage() {
               <div className="pt-3 border-t border-line-subtle flex items-center justify-between text-xs text-ink-secondary">
                 <div>
                   <span className="font-semibold text-ink">
-                    {project.available_units || 0}
+                    {project.available_units}
                   </span>{" "}
                   available
                 </div>

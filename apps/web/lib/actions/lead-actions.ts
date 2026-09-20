@@ -12,6 +12,14 @@ import {
   type TaskPriority,
 } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
+import {
+  createLeadSchema,
+  updateLeadStatusSchema,
+  assignLeadSchema,
+  addNoteSchema,
+  createTaskSchema,
+  completeTaskSchema,
+} from "@/lib/validations/action-schemas";
 
 export interface ActionResult<T = unknown> {
   success: boolean;
@@ -20,7 +28,7 @@ export interface ActionResult<T = unknown> {
 }
 
 /**
- * Server Action: Creates a new lead.
+ * Server Action: Creates a new lead with Zod validation.
  */
 export async function createLeadAction(
   formData: FormData,
@@ -28,25 +36,26 @@ export async function createLeadAction(
   try {
     const context = await requireTenantContext();
 
-    const fullName = formData.get("fullName") as string;
-    const phone = formData.get("phone") as string;
-    const email = (formData.get("email") as string) || undefined;
-    const source = (formData.get("source") as string) || "MANUAL";
-    const assignedUserId =
-      (formData.get("assignedUserId") as string) || undefined;
+    const rawInput = {
+      fullName: formData.get("fullName"),
+      phone: formData.get("phone"),
+      email: formData.get("email") || undefined,
+      source: formData.get("source") || "MANUAL",
+      assignedUserId: formData.get("assignedUserId") || undefined,
+    };
 
-    if (!fullName || !fullName.trim()) {
-      return { success: false, error: "Full name is required" };
+    const parsed = createLeadSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
-    if (!phone || !phone.trim()) {
-      return { success: false, error: "Phone number is required" };
-    }
+
+    const { fullName, phone, email, source, assignedUserId } = parsed.data;
 
     const lead = await createLead(context, {
-      fullName: fullName.trim(),
-      phone: phone.trim(),
-      email: email?.trim() || null,
-      source: source.trim(),
+      fullName,
+      phone,
+      email: email || null,
+      source,
       assignedUserId: assignedUserId || null,
       status: "NEW",
     });
@@ -63,7 +72,7 @@ export async function createLeadAction(
 }
 
 /**
- * Server Action: Updates a lead's operational status.
+ * Server Action: Updates a lead's operational status with Zod validation.
  */
 export async function updateLeadStatusAction(
   leadId: string,
@@ -72,11 +81,16 @@ export async function updateLeadStatusAction(
   try {
     const context = await requireTenantContext();
 
-    if (!leadId) {
-      return { success: false, error: "Lead ID is required" };
+    const parsed = updateLeadStatusSchema.safeParse({ leadId, newStatus });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
 
-    const updated = await updateLeadStatus(context, leadId, newStatus);
+    const updated = await updateLeadStatus(
+      context,
+      parsed.data.leadId,
+      parsed.data.newStatus,
+    );
 
     revalidatePath("/app");
     revalidatePath("/app/leads");
@@ -91,7 +105,7 @@ export async function updateLeadStatusAction(
 }
 
 /**
- * Server Action: Reassigns a lead to a sales agent.
+ * Server Action: Reassigns a lead to a sales agent with Zod validation.
  */
 export async function assignLeadAction(
   leadId: string,
@@ -100,11 +114,16 @@ export async function assignLeadAction(
   try {
     const context = await requireTenantContext();
 
-    if (!leadId || !targetUserId) {
-      return { success: false, error: "Lead ID and target agent are required" };
+    const parsed = assignLeadSchema.safeParse({ leadId, targetUserId });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
 
-    const updated = await assignLead(context, leadId, targetUserId);
+    const updated = await assignLead(
+      context,
+      parsed.data.leadId,
+      parsed.data.targetUserId,
+    );
 
     revalidatePath("/app/leads");
     revalidatePath(`/app/leads/${leadId}`);
@@ -118,7 +137,7 @@ export async function assignLeadAction(
 }
 
 /**
- * Server Action: Appends a manual note to the lead timeline.
+ * Server Action: Appends a manual note to the lead timeline with Zod validation.
  */
 export async function addLeadNoteAction(
   leadId: string,
@@ -127,17 +146,15 @@ export async function addLeadNoteAction(
   try {
     const context = await requireTenantContext();
 
-    if (!leadId) {
-      return { success: false, error: "Lead ID is required" };
-    }
-    if (!content || !content.trim()) {
-      return { success: false, error: "Note content cannot be empty" };
+    const parsed = addNoteSchema.safeParse({ leadId, content });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
 
     const activity = await logActivity(context, {
-      leadId,
+      leadId: parsed.data.leadId,
       activityType: "NOTE",
-      summary: content.trim(),
+      summary: parsed.data.content,
     });
 
     revalidatePath("/app");
@@ -151,7 +168,7 @@ export async function addLeadNoteAction(
 }
 
 /**
- * Server Action: Schedules a follow-up task for a lead.
+ * Server Action: Schedules a follow-up task for a lead with Zod validation.
  */
 export async function createFollowupTaskAction(
   leadId: string,
@@ -163,20 +180,24 @@ export async function createFollowupTaskAction(
   try {
     const context = await requireTenantContext();
 
-    if (!title || !title.trim()) {
-      return { success: false, error: "Task title is required" };
-    }
-    if (!dueDate) {
-      return { success: false, error: "Due date is required" };
+    const parsed = createTaskSchema.safeParse({
+      leadId,
+      title,
+      dueDate,
+      priority,
+      description,
+    });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
 
     const task = await createTask(context, {
-      leadId,
+      leadId: parsed.data.leadId || null,
       assignedUserId: context.userId,
-      title: title.trim(),
-      dueDate,
-      priority,
-      description: description?.trim(),
+      title: parsed.data.title,
+      dueDate: parsed.data.dueDate,
+      priority: parsed.data.priority,
+      description: parsed.data.description || undefined,
     });
 
     revalidatePath("/app");
@@ -191,7 +212,7 @@ export async function createFollowupTaskAction(
 }
 
 /**
- * Server Action: Marks a follow-up task as complete.
+ * Server Action: Marks a follow-up task as complete with Zod validation.
  */
 export async function completeTaskAction(
   taskId: string,
@@ -200,11 +221,12 @@ export async function completeTaskAction(
   try {
     const context = await requireTenantContext();
 
-    if (!taskId) {
-      return { success: false, error: "Task ID is required" };
+    const parsed = completeTaskSchema.safeParse({ taskId, leadId });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
 
-    const task = await completeTask(context, taskId);
+    const task = await completeTask(context, parsed.data.taskId);
 
     revalidatePath("/app");
     if (leadId) {

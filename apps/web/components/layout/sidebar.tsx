@@ -19,9 +19,10 @@ import type { SessionUser } from "@/lib/auth";
 
 interface SidebarProps {
   session: SessionUser;
+  onNavClick?: () => void;
 }
 
-export function Sidebar({ session }: SidebarProps) {
+export function Sidebar({ session, onNavClick }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isOrgDropdownOpen, setIsOrgDropdownOpen] = React.useState(false);
@@ -155,6 +156,7 @@ export function Sidebar({ session }: SidebarProps) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      onClick={onNavClick}
                       className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
                         isActive
                           ? "bg-sidebar-active-bg text-sidebar-active border-l-2 border-accent pl-[8px]"
