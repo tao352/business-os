@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { Client } from "../packages/database/src/client.js";
 
 // Load seeded fixtures
 const fixturesPath = path.resolve(__dirname, "e2e-fixtures.json");
@@ -329,5 +330,137 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     await expect(
       page.locator('button[title="Mark complete"]'),
     ).not.toBeVisible();
+  });
+
+  test("8. Multi-organization switching works under app_user runtime", async ({
+    page,
+  }) => {
+    await page.context().clearCookies();
+
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userSwitch.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userSwitch.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/app(\?.*)?$/);
+    await expect(page.locator("body")).toContainText(fixtures.orgA.name);
+
+    const orgTrigger = page
+      .locator("aside button")
+      .filter({ hasText: fixtures.orgA.name })
+      .first();
+
+    await orgTrigger.click();
+
+    const secondaryButton = page
+      .locator("aside button")
+      .filter({ hasText: fixtures.orgASecondary.name })
+      .first();
+
+    await expect(secondaryButton).toBeVisible();
+    await secondaryButton.click();
+
+    await expect(page.locator("body")).toContainText(
+      fixtures.orgASecondary.name,
+    );
+
+    // Switch back so later visual QA / tests remain on the main fixture tenant.
+    const secondaryTrigger = page
+      .locator("aside button")
+      .filter({ hasText: fixtures.orgASecondary.name })
+      .first();
+
+    await secondaryTrigger.click();
+
+    const primaryButton = page
+      .locator("aside button")
+      .filter({ hasText: fixtures.orgA.name })
+      .first();
+
+    await primaryButton.click();
+
+    await expect(page.locator("body")).toContainText(fixtures.orgA.name);
+  });
+
+  test("9. Organization switch denies a tenant the user does not belong to", async ({
+    page,
+  }) => {
+    await page.context().clearCookies();
+
+    await page.goto("/login");
+    await page
+      .locator('input[type="email"]')
+      .fill(fixtures.userCrossDenied.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userCrossDenied.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/app(\?.*)?$/);
+
+    const response = await page.request.post("/api/auth/switch-org", {
+      data: {
+        targetOrganizationId: fixtures.orgB.id,
+      },
+    });
+
+    expect(response.status()).toBe(403);
+
+    await page.goto("/app");
+    await expect(page.locator("body")).toContainText(fixtures.orgA.name);
+    await expect(page.locator("body")).not.toContainText(fixtures.orgB.name);
+  });
+
+  test("10. Live membership revocation invalidates an existing session", async ({
+    page,
+  }) => {
+    const adminUrl = process.env.TEST_ADMIN_DATABASE_URL;
+
+    if (!adminUrl) {
+      test.skip();
+      return;
+    }
+
+    await page.context().clearCookies();
+
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userRevoked.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userRevoked.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/app(\?.*)?$/);
+
+    const admin = new Client({ connectionString: adminUrl });
+    await admin.connect();
+
+    try {
+      await admin.query(
+        `UPDATE organization_memberships
+         SET is_active = false
+         WHERE user_id = $1
+           AND organization_id = $2`,
+        [fixtures.userRevoked.id, fixtures.orgA.id],
+      );
+
+      await page.goto("/app");
+
+      await page.waitForURL(/\/login/);
+      expect(page.url()).toContain("/login");
+    } finally {
+      // Restore fixture so visual QA is not poisoned by this security test.
+      await admin.query(
+        `UPDATE organization_memberships
+         SET is_active = true
+         WHERE user_id = $1
+           AND organization_id = $2`,
+        [fixtures.userRevoked.id, fixtures.orgA.id],
+      );
+
+      await admin.end();
+    }
   });
 });

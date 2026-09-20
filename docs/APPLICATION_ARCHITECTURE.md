@@ -111,12 +111,34 @@
 
 ---
 
-## 3. Production Environment Safety
+---
 
-- **Fail-Closed Boot (`validateWebEnvironment`):**
-  - In production (`NODE_ENV === 'production'`), startup is immediately halted if `DATABASE_URL`, `JWT_SECRET` (minimum 32 characters), or `ENCRYPTION_KEY` (32 bytes) are missing or set to trivial/dev defaults.
-  - Wire-checked directly on Next.js startup via `apps/web/instrumentation.ts` (`register()` hook).
-  - Prevents accidental deployment with insecure fallback configurations.
+## 3. Production Environment Safety & Database Runtime Parity
+
+### 3.1 Fail-Closed Boot & Runtime Role Assertion
+
+- In production (`NODE_ENV === 'production'`), startup is immediately halted if `DATABASE_URL`, `JWT_SECRET` (minimum 32 characters), or `ENCRYPTION_KEY` (32 bytes) are missing or set to trivial/dev defaults.
+- **Runtime Least-Privilege Assertion (`assertLeastPrivilegeRuntimeDatabaseRole`):** Wire-checked on Next.js startup via `apps/web/instrumentation.ts`. Asserts that the runtime user is `app_user` and is strictly non-privileged (`rolsuper = false`, `rolbypassrls = false`, `rolcreatedb = false`, `rolcreaterole = false`). If the Web App connects as a superuser or privileged role, startup is immediately aborted.
+
+### 3.2 Production Database Runtime & Auth Bootstrap
+
+- **Runtime DB Connection:** Web App `DATABASE_URL` connects exclusively as `app_user` (least privilege, `NOSUPERUSER`, `NOBYPASSRLS`).
+- **Administrative Operations:** Schema migrations, role provisioning, and fixture administration run out-of-band using `MIGRATOR_DATABASE_URL` / `migratorPool`.
+- **Pre-Tenant Membership Discovery:**
+  - `organization_memberships` remains strictly protected under `FORCE ROW LEVEL SECURITY`.
+  - When a user logs in, credentials (`password_hash`) are verified against `users` table **before** any membership enumeration occurs.
+  - The SQL function `public.auth_list_active_memberships(user_id)` is the **ONLY** pre-tenant membership enumeration path.
+  - It is a narrow `SECURITY DEFINER` router owned by a dedicated `NOLOGIN BYPASSRLS` role (`business_os_auth_router_owner`).
+  - `EXECUTE` is explicitly revoked from `PUBLIC` and granted exclusively to `app_user`.
+  - It exposes only minimum bootstrap metadata (`organization_id`, `organization_name`, `organization_slug`, `role`).
+  - _Security scope:_ The function exposes only minimum membership metadata and does not grant direct table-wide access to `app_user`. It does not eliminate all theoretical function calls if the runtime role itself is compromised, but ensures zero direct table access.
+- **Post-Bootstrap Operations (Normal Tenant RLS):**
+  - Once a tenant is selected, `resolveTenantContextFromToken()` and `switchOrganization()` validate active memberships using normal tenant RLS inside `withTenantContext(organizationId)`.
+  - Organization creation (`createOrganization`) executes under `app_user`, sets `app.current_tenant_id` to the new org within the transaction, and writes the `OWNER` membership row atomically without requiring any privileged router.
+- **Automated Security & Audit Tooling:**
+  - **pgrls (`pgrls.toml`):** Static and live database audit verifying that `SECURITY DEFINER` functions (`SEC014`, `SEC015`) and `BYPASSRLS` roles (`SEC016`) are strictly audited, allowlisted, and search-path hardened.
+  - **Gitleaks:** CI secret scanning on every push and PR to verify no credentials or tokens are committed.
+  - **Browser E2E Parity:** Playwright tests run against an actual Next.js process connected as `app_user` with admin credentials stripped from its environment.
 
 ---
 

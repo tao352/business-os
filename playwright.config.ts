@@ -33,16 +33,31 @@ export default defineConfig({
         timeout: 30000,
         env: {
           PORT: "3000",
+
           DATABASE_URL:
             process.env.DATABASE_URL ||
-            "postgres://postgres:postgrespassword@localhost:5434/business_os",
+            "postgres://app_user:app_password@localhost:5434/business_os",
+
           ALLOW_LOCAL_DEV_CREDS: "true",
+
+          VERIFY_RUNTIME_DB_ROLE: process.env.VERIFY_RUNTIME_DB_ROLE || "true",
+
+          EXPECTED_DATABASE_ROLE:
+            process.env.EXPECTED_DATABASE_ROLE || "app_user",
+
           JWT_SECRET:
             process.env.JWT_SECRET ||
             "super-secret-jwt-signing-key-minimum-32-chars-for-dev",
+
           ENCRYPTION_KEY:
             process.env.ENCRYPTION_KEY ||
             "dev-encryption-key-32-bytes-secure!!",
+
+          // Explicitly strip administrative database credentials from the
+          // running Next.js process. The Playwright test harness may receive
+          // TEST_ADMIN_DATABASE_URL, but the Web App must not.
+          MIGRATOR_DATABASE_URL: "",
+          TEST_ADMIN_DATABASE_URL: "",
         },
       },
 });

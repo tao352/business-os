@@ -1,0 +1,18 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for safe test fixtures, dummy encryption keys, and CI workflow dummy variables"
+paths = [
+  '''tests/.*''',
+  '''tests-e2e/.*''',
+  '''\.github/workflows/.*''',
+]
+regexes = [
+  '''test-encryption-key-32-bytes-ci-safe''',
+  '''wa_secret_futtaim_2026''',
+]
+stopwords = [
+  "test-encryption-key-32-bytes-ci-safe",
+  "wa_secret_futtaim_2026",
+]

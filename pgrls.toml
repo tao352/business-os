@@ -1,0 +1,24 @@
+[database]
+url = "$PGRLS_DATABASE_URL"
+schemas = ["public"]
+
+[lint]
+fail_on = "warning"
+
+# All current SECURITY DEFINER functions are intentionally narrow and audited.
+# SEC014 is a surface-enumeration rule, so these explicit allowlist entries are
+# the documentation that review occurred.
+[lint.rules.SEC014]
+allowlist = [
+  "public.resolve_meta_tenant",
+  "public.resolve_whatsapp_tenant",
+  "public.auth_list_active_memberships",
+]
+
+# These are dedicated NOLOGIN router-owner roles.
+# They are the ONLY intentional non-superuser BYPASSRLS roles.
+[lint.rules.SEC016]
+allowlist = [
+  "business_os_router_owner",
+  "business_os_auth_router_owner",
+]

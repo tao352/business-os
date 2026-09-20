@@ -32,7 +32,9 @@ export function getMigratorPool(): pg.Pool {
       );
     }
     const migratorDatabaseUrl =
-      process.env.MIGRATOR_DATABASE_URL || databaseUrl;
+      process.env.MIGRATOR_DATABASE_URL ||
+      process.env.TEST_ADMIN_DATABASE_URL ||
+      databaseUrl;
     _migratorPoolInstance = new Pool({
       connectionString: migratorDatabaseUrl,
       max: Number(process.env.MIGRATOR_DATABASE_MAX_CONNECTIONS || 5),
