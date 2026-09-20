@@ -1,8 +1,9 @@
-import { pool } from "@business-os/database";
+import { pool, withTenantContext } from "@business-os/database";
 import { logger } from "@business-os/logger";
 import type { TenantRole } from "@business-os/types";
 import { hashPassword, verifyPassword } from "./password.js";
-import { issueTenantToken, type TenantTokenPayload } from "./jwt.js";
+import { issueTenantToken } from "./jwt.js";
+import { listActiveOrganizationsForUser } from "./membership-bootstrap.js";
 
 export interface RegisterUserInput {
   email: string;
@@ -27,6 +28,9 @@ export interface AuthenticateResult {
 
 /**
  * Registers a new global user account with hashed password.
+ *
+ * users is a global identity/control-plane table in the current schema.
+ * Tenant business data remains RLS protected.
  */
 export async function registerUser(input: RegisterUserInput) {
   const emailNormalized = input.email.trim().toLowerCase();
@@ -38,6 +42,7 @@ export async function registerUser(input: RegisterUserInput) {
       "SELECT id FROM users WHERE email = $1",
       [emailNormalized],
     );
+
     if (existing.rows.length > 0) {
       throw new Error("User with this email already exists");
     }
@@ -56,7 +61,10 @@ export async function registerUser(input: RegisterUserInput) {
 }
 
 /**
- * Authenticates user credentials and returns their memberships and an initial session token if they have an active org.
+ * Authenticates credentials, then uses the narrow pre-tenant bootstrap router
+ * to enumerate active organization memberships.
+ *
+ * The password MUST be verified before membership enumeration.
  */
 export async function authenticateUser(
   email: string,
@@ -65,6 +73,14 @@ export async function authenticateUser(
   const emailNormalized = email.trim().toLowerCase();
 
   const client = await pool.connect();
+  let user: {
+    id: string;
+    email: string;
+    full_name: string;
+    password_hash: string;
+    is_active: boolean;
+  };
+
   try {
     const userRes = await client.query(
       `SELECT id, email, full_name, password_hash, is_active
@@ -77,7 +93,8 @@ export async function authenticateUser(
       throw new Error("Invalid email or password");
     }
 
-    const user = userRes.rows[0];
+    user = userRes.rows[0];
+
     if (!user.is_active) {
       throw new Error("User account is suspended");
     }
@@ -86,51 +103,42 @@ export async function authenticateUser(
     if (!isValid) {
       throw new Error("Invalid email or password");
     }
-
-    // Retrieve active organization memberships
-    const orgsRes = await client.query(
-      `SELECT o.id, o.name, o.slug, m.role
-       FROM organization_memberships m
-       JOIN organizations o ON o.id = m.organization_id
-       WHERE m.user_id = $1 AND m.is_active = true
-       ORDER BY o.created_at ASC`,
-      [user.id],
-    );
-
-    const organizations = orgsRes.rows.map((row) => ({
-      id: row.id as string,
-      name: row.name as string,
-      slug: row.slug as string,
-      role: row.role as TenantRole,
-    }));
-
-    let primaryToken: string | undefined;
-    const firstOrg = organizations[0];
-    if (firstOrg) {
-      primaryToken = await issueTenantToken({
-        userId: user.id,
-        organizationId: firstOrg.id,
-        role: firstOrg.role,
-        email: user.email,
-      });
-    }
-
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-      },
-      organizations,
-      primaryToken,
-    };
   } finally {
     client.release();
   }
+
+  // Pre-tenant bootstrap is intentionally called ONLY after password verification.
+  const organizations = await listActiveOrganizationsForUser(user.id);
+
+  let primaryToken: string | undefined;
+  const firstOrg = organizations[0];
+
+  if (firstOrg) {
+    primaryToken = await issueTenantToken({
+      userId: user.id,
+      organizationId: firstOrg.id,
+      role: firstOrg.role,
+      email: user.email,
+    });
+  }
+
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+    },
+    organizations,
+    primaryToken,
+  };
 }
 
 /**
- * Provisions a new tenant organization and appoints the creator as OWNER.
+ * Provisions a new tenant organization and atomically assigns the creator OWNER.
+ *
+ * No privileged router is needed:
+ * once the organization row exists, its tenant ID is known, so the transaction
+ * binds app.current_tenant_id before inserting the FORCE-RLS membership row.
  */
 export async function createOrganization(params: {
   userId: string;
@@ -139,10 +147,14 @@ export async function createOrganization(params: {
   plan?: "STARTER" | "GROWTH" | "ENTERPRISE";
 }) {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
-    // Create organization
+    // Always execute the mutation as the least-privilege runtime role,
+    // even when a test harness happens to connect using a migrator/admin pool.
+    await client.query("SET LOCAL ROLE app_user");
+
     const orgRes = await client.query(
       `INSERT INTO organizations (name, slug, plan)
        VALUES ($1, $2, $3)
@@ -153,11 +165,21 @@ export async function createOrganization(params: {
         params.plan || "STARTER",
       ],
     );
+
     const org = orgRes.rows[0];
 
-    // Assign creating user as OWNER
+    // The tenant is now known. Bind the new org before writing memberships.
+    await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
+      org.id,
+    ]);
+
     await client.query(
-      `INSERT INTO organization_memberships (organization_id, user_id, role, is_active)
+      `INSERT INTO organization_memberships (
+         organization_id,
+         user_id,
+         role,
+         is_active
+       )
        VALUES ($1, $2, 'OWNER', true)`,
       [org.id, params.userId],
     );
@@ -179,39 +201,47 @@ export async function createOrganization(params: {
 }
 
 /**
- * Switches the active tenant context for a multi-org user.
- * Validates that the user is an active member of the target organization before issuing the new token.
+ * Switches to an organization the user actively belongs to.
+ *
+ * targetOrganizationId is already known, so normal tenant RLS is the correct
+ * authorization primitive. No pre-tenant router is used here.
  */
 export async function switchOrganization(params: {
   userId: string;
   targetOrganizationId: string;
   email: string;
 }): Promise<string> {
-  const client = await pool.connect();
-  try {
-    const res = await client.query(
-      `SELECT role, is_active
-       FROM organization_memberships
-       WHERE user_id = $1 AND organization_id = $2`,
-      [params.userId, params.targetOrganizationId],
-    );
+  const membership = await withTenantContext(
+    params.targetOrganizationId,
+    async (client) => {
+      const res = await client.query<{
+        role: TenantRole;
+        is_active: boolean;
+      }>(
+        `SELECT role, is_active
+         FROM organization_memberships
+         WHERE user_id = $1
+           AND organization_id = $2`,
+        [params.userId, params.targetOrganizationId],
+      );
 
-    if (res.rows.length === 0) {
-      throw new Error("User does not have access to this organization");
-    }
+      const row = res.rows[0];
+      if (!row) {
+        throw new Error("User does not have access to this organization");
+      }
 
-    const membership = res.rows[0];
-    if (!membership.is_active) {
-      throw new Error("Membership in this organization is deactivated");
-    }
+      return row;
+    },
+  );
 
-    return await issueTenantToken({
-      userId: params.userId,
-      organizationId: params.targetOrganizationId,
-      role: membership.role as TenantRole,
-      email: params.email,
-    });
-  } finally {
-    client.release();
+  if (!membership.is_active) {
+    throw new Error("Membership in this organization is deactivated");
   }
+
+  return issueTenantToken({
+    userId: params.userId,
+    organizationId: params.targetOrganizationId,
+    role: membership.role,
+    email: params.email,
+  });
 }

@@ -39,6 +39,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Setup Python for pgrls
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -63,11 +76,155 @@ jobs:
       - name: Strict Typecheck
         run: pnpm run typecheck
 
+      - name: Apply database migrations
+        run: pnpm run db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          MIGRATOR_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+
+      - name: Provision Runtime Database Roles
+        run: pnpm run db:provision-roles
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          APP_DB_PASSWORD: app_password
+
+      - name: Install pgrls
+        run: pip install "pgrls==0.56.0"
+
+      - name: Audit SECURITY DEFINER and BYPASSRLS surface
+        run: >
+          pgrls lint
+          --config pgrls.toml
+          --rule SEC014
+          --rule SEC015
+          --rule SEC016
+          --format github
+        env:
+          PGRLS_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+
       - name: Run Vitest Test Suites
         run: pnpm run test
         env:
           DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          MIGRATOR_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          APP_DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
+          APP_DB_PASSWORD: app_password
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
           ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
           NODE_ENV: test
+
+  e2e:
+    name: Browser E2E & Visual QA
+    runs-on: ubuntu-latest
+    needs: validate
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: business_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers & OS Dependencies
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build packages
+        run: pnpm run build:packages
+
+      - name: Apply database migrations
+        run: pnpm run db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          MIGRATOR_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+
+      - name: Provision Runtime Database Roles
+        run: pnpm run db:provision-roles
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          APP_DB_PASSWORD: app_password
+
+      - name: Build Next.js Web App
+        run: pnpm run web:build
+        env:
+          DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+
+      - name: Seed deterministic E2E fixtures
+        run: pnpm exec tsx scripts/seed-e2e.ts
+        env:
+          DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
+          MIGRATOR_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          TEST_ADMIN_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          APP_DB_PASSWORD: app_password
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+          NODE_ENV: test
+
+      - name: Run Playwright Browser E2E Tests
+        run: pnpm run test:e2e:browser
+        env:
+          DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
+          TEST_ADMIN_DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+          VERIFY_RUNTIME_DB_ROLE: "true"
+          EXPECTED_DATABASE_ROLE: app_user
+          CI: "true"
+
+      - name: Run Playwright Responsive Visual QA Tests
+        run: pnpm run test:visual:browser
+        env:
+          DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+          VERIFY_RUNTIME_DB_ROLE: "true"
+          EXPECTED_DATABASE_ROLE: app_user
+          CI: "true"
+
+      - name: Upload Visual QA Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase21-visual-qa
+          path: tests-e2e/screenshots/*.png
+          retention-days: 14

@@ -83,3 +83,36 @@ export function assertPermission(
     throw new ForbiddenError(context.role, action, resource);
   }
 }
+
+/**
+ * Evaluates whether an authenticated user is permitted to access individual customer lead records,
+ * lead dossiers, customer timelines, or lead-specific tasks.
+ * MARKETING_USER is strictly restricted to aggregated/reporting metrics only.
+ */
+export function canAccessIndividualLeadRecords(
+  context: TenantContext,
+  targetEntity?: Record<string, unknown>,
+): boolean {
+  if (context.role === "MARKETING_USER") {
+    return false;
+  }
+  return can(context, "read", "lead", targetEntity);
+}
+
+/**
+ * Asserts permission to access individual customer lead records.
+ * Throws typed ForbiddenError using the standard contract if unauthorized.
+ */
+export function assertCanAccessIndividualLeadRecords(
+  context: TenantContext,
+  targetEntity?: Record<string, unknown>,
+): void {
+  if (!canAccessIndividualLeadRecords(context, targetEntity)) {
+    throw new ForbiddenError(
+      context.role,
+      "read",
+      "lead",
+      `Role '${context.role}' is restricted to aggregated analytics and cannot access individual customer records, dossiers, or timelines.`,
+    );
+  }
+}

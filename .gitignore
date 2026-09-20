@@ -30,6 +30,10 @@ out/
 # Testing & Coverage
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
+tests-e2e/e2e-fixtures.json
+tests-e2e/screenshots/
 
 # OS & Editor Files
 .DS_Store

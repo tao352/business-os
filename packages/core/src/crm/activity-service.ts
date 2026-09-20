@@ -1,6 +1,10 @@
 import { withTenantContext } from "@business-os/database";
 import type { TenantContext } from "@business-os/types";
-import { assertPermission } from "../permissions/checker.js";
+import {
+  assertPermission,
+  assertCanAccessIndividualLeadRecords,
+} from "../permissions/checker.js";
+import { getLead } from "./lead-service.js";
 
 export type ActivityType =
   "CALL" | "WHATSAPP" | "EMAIL" | "MEETING" | "NOTE" | "STATUS_CHANGE";
@@ -19,16 +23,27 @@ export async function logActivity(
   context: TenantContext,
   input: LogActivityInput,
 ) {
-  assertPermission(context, "update", "lead");
+  assertCanAccessIndividualLeadRecords(context);
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    // 1. Update lead's last_contacted_at timestamp
+    // 1. Verify lead exists, belongs to tenant, and check row-level update permission
+    const leadRes = await tx.query("SELECT * FROM leads WHERE id = $1", [
+      input.leadId,
+    ]);
+    if (leadRes.rows.length === 0) {
+      throw new Error("Lead not found");
+    }
+
+    const targetLead = leadRes.rows[0];
+    assertPermission(context, "update", "lead", targetLead);
+
+    // 2. Update lead's last_contacted_at timestamp
     await tx.query(
       "UPDATE leads SET last_contacted_at = NOW(), updated_at = NOW() WHERE id = $1",
       [input.leadId],
     );
 
-    // 2. Insert the activity record
+    // 3. Insert the activity record
     const res = await tx.query(
       `INSERT INTO activities (
         organization_id, lead_id, user_id, activity_type, summary, details
@@ -50,12 +65,18 @@ export async function logActivity(
 
 /**
  * Retrieves the complete chronological activity timeline for a lead.
+ * Asserts individual lead access permission (rejects MARKETING_USER) and
+ * verifies row-level lead assignment for SALESPERSON.
  */
 export async function listLeadActivities(
   context: TenantContext,
   leadId: string,
 ) {
-  assertPermission(context, "read", "lead");
+  assertCanAccessIndividualLeadRecords(context);
+  // Asserts lead exists, belongs to tenant, and is assigned to caller if SALESPERSON
+  if (context.role === "SALESPERSON") {
+    await getLead(context, leadId);
+  }
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
