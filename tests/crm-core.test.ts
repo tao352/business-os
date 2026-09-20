@@ -36,22 +36,7 @@ describe("Live CRM Core Engine (Leads, Activities, Tasks, Deals & Auditing)", ()
   let createdLeadId: string;
 
   beforeAll(async () => {
-    // 1. Apply Migration 0003
-    const migration3 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0003_crm_core.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration3);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Organization & Owner
+    // 1. Setup Organization & Owner
     const owner = await registerUser({
       email: `owner.${uniqueSuffix}@marassi.local`,
       password: "OwnerPassword2026!",

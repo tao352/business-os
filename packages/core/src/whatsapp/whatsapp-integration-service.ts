@@ -10,6 +10,7 @@ import {
   decryptSecret,
   maskSecret,
 } from "../security/crypto-service.js";
+import { resolveWhatsAppTenant } from "../integrations/credential-service.js";
 
 /**
  * Saves or updates WhatsApp Business Account credentials for an organization.
@@ -82,15 +83,17 @@ export async function findWhatsAppIntegrationByPhoneNumberId(
   ownerUserId: string;
   integration: WhatsAppIntegration;
 } | null> {
-  const client = await pool.connect();
-  try {
-    const res = await client.query(
+  const routing = await resolveWhatsAppTenant(phoneNumberId);
+  if (!routing) return null;
+
+  return await withTenantContext(routing.organizationId, async (tx) => {
+    const res = await tx.query(
       `SELECT w.*, om.user_id as owner_user_id
        FROM whatsapp_integrations w
        LEFT JOIN organization_memberships om ON om.organization_id = w.organization_id AND om.role = 'OWNER'
-       WHERE w.phone_number_id = $1 AND w.is_active = true
+       WHERE w.id = $1 AND w.is_active = true
        LIMIT 1`,
-      [phoneNumberId],
+      [routing.integrationId],
     );
     if (res.rows.length === 0) return null;
     const row = res.rows[0];
@@ -111,7 +114,5 @@ export async function findWhatsAppIntegrationByPhoneNumberId(
         updatedAt: row.updated_at,
       },
     };
-  } finally {
-    client.release();
-  }
+  });
 }

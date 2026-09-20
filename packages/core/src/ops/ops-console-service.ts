@@ -196,9 +196,6 @@ export async function executeSafeOpsAction(
     };
   }
 
-  return {
-    success: true,
-    message: `Action '${action}' successfully executed under '${level}' authorization`,
-    action,
-  };
+  // Explicitly fail planned but not yet implemented actions to prevent false claims of success
+  throw new NotImplementedError(action);
 }

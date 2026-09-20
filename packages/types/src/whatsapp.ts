@@ -24,12 +24,13 @@ export interface ConfigureWhatsAppInput {
 
 export type WhatsAppMessageDirection = "INBOUND" | "OUTBOUND";
 export type WhatsAppMessageType = "text" | "template" | "interactive";
-export type WhatsAppMessageStatus = "SENT" | "DELIVERED" | "READ" | "FAILED";
+export type WhatsAppMessageStatus =
+  "PENDING" | "SENDING" | "SENT" | "DELIVERED" | "READ" | "FAILED" | "UNKNOWN";
 
 export interface WhatsAppMessageRecord {
   id: string;
   organizationId: string;
-  wamid: string;
+  wamid?: string | null;
   leadId?: string | null;
   direction: WhatsAppMessageDirection;
   senderPhone: string;

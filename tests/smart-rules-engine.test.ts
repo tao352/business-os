@@ -28,22 +28,7 @@ describe("Phase 10: Smart Rules Automation Engine (TCA Live Tests)", () => {
   let activeRule: SmartRule;
 
   beforeAll(async () => {
-    // 1. Apply Migration 0007
-    const migration7 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0007_smart_rules.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration7);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (Palm Hills)
+    // 1. Setup Org A (Palm Hills)
     const ownerA = await registerUser({
       email: `owner.palm.${uniqueSuffix}@palmhills.local`,
       password: "StrongPassword2026!",

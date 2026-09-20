@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { PoolClient } from "pg";
-import { pool } from "./client.js";
+import { migratorPool } from "./client.js";
 import { logger } from "@business-os/logger";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,7 +35,7 @@ export function computeFileChecksum(filePath: string): string {
 export async function runPendingMigrations(
   customClient?: PoolClient,
 ): Promise<{ applied: string[]; skipped: string[] }> {
-  const client = customClient || (await pool.connect());
+  const client = customClient || (await migratorPool.connect());
   const shouldRelease = !customClient;
 
   try {
@@ -132,7 +132,7 @@ export async function runPendingMigrations(
 export async function verifyMigrationIntegrity(
   customClient?: PoolClient,
 ): Promise<{ valid: boolean; mismatches: string[] }> {
-  const client = customClient || (await pool.connect());
+  const client = customClient || (await migratorPool.connect());
   const shouldRelease = !customClient;
 
   try {

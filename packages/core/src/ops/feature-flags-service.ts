@@ -84,23 +84,14 @@ export async function setFeatureFlag(
   input: SetFeatureFlagInput,
   adminContext?: PlatformAdminContext | TenantContext,
 ): Promise<FeatureFlag> {
-  if (adminContext) {
-    const isPlatformAdmin =
-      "isPlatformAdmin" in adminContext &&
-      adminContext.isPlatformAdmin === true;
-    const isTenantAdmin =
-      "role" in adminContext &&
-      (adminContext.role === "ADMIN" || adminContext.role === "OWNER");
-    const isPilot =
-      "correlationId" in adminContext &&
-      Boolean(adminContext.correlationId?.startsWith("pilot-init-"));
+  const isAuthorized =
+    adminContext &&
+    "isPlatformAdmin" in adminContext &&
+    adminContext.isPlatformAdmin === true;
 
-    if (!isPlatformAdmin && !isTenantAdmin && !isPilot) {
-      throw new PlatformAuthorizationError();
-    }
-  } else if (process.env.NODE_ENV === "production") {
+  if (!isAuthorized) {
     throw new PlatformAuthorizationError(
-      "Platform administrator context is strictly required in production",
+      "Only authorized platform administrators can configure platform feature flags. Tenant admins and owners cannot mutate platform flags.",
     );
   }
 

@@ -12,6 +12,7 @@ import {
   triggerRules,
   configureWhatsAppIntegration,
   sendWhatsAppMessage,
+  processPendingWhatsAppOutbox,
   processWhatsAppWebhookPayload,
   verifyWhatsAppSignature,
   signWhatsAppPayload,
@@ -35,22 +36,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
   beforeAll(async () => {
     mockClient = new MockWhatsAppApiClient();
 
-    // 1. Apply Migration 0008
-    const migration8 = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        "../packages/database/migrations/0008_whatsapp_integration.sql",
-      ),
-      "utf-8",
-    );
-    const client = await pool.connect();
-    try {
-      await client.query(migration8);
-    } finally {
-      client.release();
-    }
-
-    // 2. Setup Org A (Al Futtaim)
+    // 1. Setup Org A (Al Futtaim)
     const ownerA = await registerUser({
       email: `owner.futtaim.${uniqueSuffix}@futtaim.local`,
       password: "StrongPassword2026!",
@@ -153,23 +139,26 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
     });
 
     it("dispatches outbound template message and logs timeline activity", async () => {
-      const message = await sendWhatsAppMessage(
-        orgAContext,
-        {
-          phoneNumberId: phoneNumberIdA,
-          recipientPhone: clientPhone,
-          templateName: "cairo_festival_city_launch",
-          variables: ["ياسر جلال", "Townhouse Prime"],
-          leadId,
-        },
-        mockClient,
-      );
+      const message = await sendWhatsAppMessage(orgAContext, {
+        phoneNumberId: phoneNumberIdA,
+        recipientPhone: clientPhone,
+        templateName: "cairo_festival_city_launch",
+        variables: ["ياسر جلال", "Townhouse Prime"],
+        leadId,
+      });
 
       expect(message.id).toBeDefined();
-      expect(message.wamid).toMatch(/^wamid\./);
       expect(message.direction).toBe("OUTBOUND");
       expect(message.messageType).toBe("template");
-      expect(message.status).toBe("SENT");
+      expect(message.status).toBe("PENDING");
+      expect(message.wamid).toBeNull();
+
+      // Process outbox to dispatch via provider
+      const outboxRes = await processPendingWhatsAppOutbox(
+        orgAContext,
+        mockClient,
+      );
+      expect(outboxRes.processed).toBeGreaterThanOrEqual(1);
 
       // Verify Recorded in Database
       const dbMsg = await withTenantContext(
@@ -183,6 +172,8 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         },
       );
       expect(dbMsg.recipient_phone).toBe(clientPhone);
+      expect(dbMsg.status).toBe("SENT");
+      expect(dbMsg.wamid).toMatch(/^wamid\./);
 
       // Verify Timeline Activity Logged
       const activities = await withTenantContext(
@@ -200,19 +191,35 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
     });
 
     it("dispatches outbound free-form text message", async () => {
-      const textMsg = await sendWhatsAppMessage(
-        orgAContext,
-        {
-          phoneNumberId: phoneNumberIdA,
-          recipientPhone: clientPhone,
-          text: "مرحباً أستاذ ياسر، تم تأكيد موعد زيارة مشروع كايرو فيستيفال سيتي غداً.",
-          leadId,
-        },
-        mockClient,
-      );
+      const textMsg = await sendWhatsAppMessage(orgAContext, {
+        phoneNumberId: phoneNumberIdA,
+        recipientPhone: clientPhone,
+        text: "مرحباً أستاذ ياسر، تم تأكيد موعد زيارة مشروع كايرو فيستيفال سيتي غداً.",
+        leadId,
+      });
 
       expect(textMsg.messageType).toBe("text");
+      expect(textMsg.status).toBe("PENDING");
       expect(textMsg.body).toContain("كايرو فيستيفال سيتي");
+
+      const outboxRes = await processPendingWhatsAppOutbox(
+        orgAContext,
+        mockClient,
+      );
+      expect(outboxRes.processed).toBeGreaterThanOrEqual(1);
+
+      const dbMsg = await withTenantContext(
+        orgAContext.organizationId,
+        async (tx) => {
+          const res = await tx.query(
+            "SELECT * FROM whatsapp_messages WHERE id = $1",
+            [textMsg.id],
+          );
+          return res.rows[0];
+        },
+      );
+      expect(dbMsg.status).toBe("SENT");
+      expect(dbMsg.wamid).toMatch(/^wamid\./);
     });
   });
 
@@ -334,15 +341,24 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
   describe("5. Delivery Status Updates (Read Receipts & Delivers)", () => {
     it("updates outbound message status to DELIVERED and READ upon receipt", async () => {
       // First send an outbound message to have a wamid
-      const sentMsg = await sendWhatsAppMessage(
-        orgAContext,
-        {
-          phoneNumberId: phoneNumberIdA,
-          recipientPhone: "+201100110011",
-          text: "Receipt Test Message",
+      const sentMsg = await sendWhatsAppMessage(orgAContext, {
+        phoneNumberId: phoneNumberIdA,
+        recipientPhone: "+201100110011",
+        text: "Receipt Test Message",
+      });
+
+      await processPendingWhatsAppOutbox(orgAContext, mockClient);
+      const dbSent = await withTenantContext(
+        orgAContext.organizationId,
+        async (tx) => {
+          const res = await tx.query(
+            "SELECT wamid FROM whatsapp_messages WHERE id = $1",
+            [sentMsg.id],
+          );
+          return res.rows[0];
         },
-        mockClient,
       );
+      const targetWamid = dbSent.wamid;
 
       // Simulate status payload from WhatsApp
       const statusPayload: WhatsAppWebhookPayload = {
@@ -361,7 +377,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
                   },
                   statuses: [
                     {
-                      id: sentMsg.wamid,
+                      id: targetWamid,
                       status: "delivered",
                       timestamp: String(Math.floor(Date.now() / 1000)),
                       recipient_id: "+201100110011",
@@ -383,7 +399,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         async (tx) => {
           const r = await tx.query(
             "SELECT status FROM whatsapp_messages WHERE wamid = $1",
-            [sentMsg.wamid],
+            [targetWamid],
           );
           return r.rows[0];
         },
@@ -399,7 +415,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         async (tx) => {
           const r = await tx.query(
             "SELECT status FROM whatsapp_messages WHERE wamid = $1",
-            [sentMsg.wamid],
+            [targetWamid],
           );
           return r.rows[0];
         },
@@ -443,15 +459,12 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         source: "VIP_CAMPAIGN",
       });
 
-      // 3. Trigger Smart Rules
+      // 3. Trigger Smart Rules (enqueue outbox event, zero inline provider calls)
       const executions = await triggerRules(
         orgAContext,
         "lead.created",
         "lead",
         lead,
-        {
-          whatsAppClient: mockClient,
-        },
       );
 
       expect(executions).toHaveLength(1);
@@ -460,6 +473,18 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
         "whatsapp.send_template",
       );
 
+      // Prior to outbox worker execution, provider has received 0 dispatches
+      expect(
+        mockClient.sentTemplates.find((t) => t.recipientPhone === vipPhone),
+      ).toBeUndefined();
+
+      // 4. Process pending outbox events via worker
+      const outboxRes = await processPendingWhatsAppOutbox(
+        orgAContext,
+        mockClient,
+      );
+      expect(outboxRes.processed).toBeGreaterThanOrEqual(1);
+
       // Verify mockClient received the template dispatch
       const sent = mockClient.sentTemplates.find(
         (t) => t.recipientPhone === vipPhone,
@@ -467,7 +492,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
       expect(sent).toBeDefined();
       expect(sent?.templateName).toBe("instant_vip_welcome");
 
-      // Verify message logged in whatsapp_messages table
+      // Verify message logged in whatsapp_messages table with status SENT
       const waMsgs = await withTenantContext(
         orgAContext.organizationId,
         async (tx) => {
@@ -480,6 +505,7 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
       );
       expect(waMsgs).toHaveLength(1);
       expect(waMsgs[0].direction).toBe("OUTBOUND");
+      expect(waMsgs[0].status).toBe("SENT");
     });
   });
 

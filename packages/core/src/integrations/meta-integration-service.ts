@@ -10,6 +10,7 @@ import {
   decryptSecret,
   maskSecret,
 } from "../security/crypto-service.js";
+import { resolveMetaTenant } from "./credential-service.js";
 
 /**
  * Saves or updates Meta Page credentials and configuration for an organization.
@@ -78,15 +79,17 @@ export async function findMetaIntegrationByPageId(pageId: string): Promise<{
   ownerUserId: string;
   integration: MetaIntegration;
 } | null> {
-  const client = await pool.connect();
-  try {
-    const res = await client.query(
+  const routing = await resolveMetaTenant(pageId);
+  if (!routing) return null;
+
+  return await withTenantContext(routing.organizationId, async (tx) => {
+    const res = await tx.query(
       `SELECT m.*, om.user_id as owner_user_id
        FROM meta_integrations m
        LEFT JOIN organization_memberships om ON om.organization_id = m.organization_id AND om.role = 'OWNER'
-       WHERE m.page_id = $1 AND m.is_active = true
+       WHERE m.id = $1 AND m.is_active = true
        LIMIT 1`,
-      [pageId],
+      [routing.integrationId],
     );
     if (res.rows.length === 0) return null;
     const row = res.rows[0];
@@ -107,7 +110,5 @@ export async function findMetaIntegrationByPageId(pageId: string): Promise<{
         updatedAt: row.updated_at,
       },
     };
-  } finally {
-    client.release();
-  }
+  });
 }

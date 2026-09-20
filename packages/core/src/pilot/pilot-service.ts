@@ -78,7 +78,12 @@ export async function provisionPilotOrganization(
     correlationId: `pilot-init-${org.id}`,
   };
 
-  // 3. Activate Pilot Feature Flags
+  const platformAdminContext = {
+    isPlatformAdmin: true as const,
+    adminId: `pilot-provisioner-${owner.id}`,
+  };
+
+  // 3. Activate Pilot Feature Flags (Authorized Platform Provisioning)
   const flagsToActivate = input.featureFlags || DEFAULT_PILOT_FLAGS;
   for (const flagKey of flagsToActivate) {
     await setFeatureFlag(
@@ -88,7 +93,7 @@ export async function provisionPilotOrganization(
         enabled_globally: false,
         target_tenants: [org.id],
       },
-      tenantContext,
+      platformAdminContext,
     );
   }
 
