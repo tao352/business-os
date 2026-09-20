@@ -4,10 +4,10 @@
 
 The Business Operating System is structured as a modular TypeScript monorepo deployed via containerized services:
 
-1. **Client / Web Application (`apps/web`):** [PLANNED]
-   - Planned Next.js 15 App Router, React 19, TypeScript, and Tailwind CSS.
+1. **Client / Web Application (`apps/web`):** [IMPLEMENTED — APPLICATION FOUNDATION]
+   - Next.js 15 App Router, React 19, TypeScript, and Tailwind CSS.
    - High-density, accessible, anti-slop business interfaces adhering to the Taste-Skill standard.
-   - Communicates with backend via type-safe Server Actions and REST API routes.
+   - Direct integration with `@business-os/core` domain services via Server Actions and REST API routes with secure HttpOnly sessions.
 2. **Core Domain & Security Layer (`packages/core`):** [IMPLEMENTED]
    - Tenant context resolution (`withTenantContext`), strict RBAC guards, and fail-closed secrets.
    - Metadata engine (`custom_field_definitions` + JSONB `custom_data`), Zod dynamic compilation.
@@ -37,7 +37,7 @@ The Business Operating System is structured as a modular TypeScript monorepo dep
 
 ## 2. Directory Responsibilities
 
-- `/apps/web`: Planned frontend Next.js application and tenant workspace [PLANNED].
+- `/apps/web`: Frontend Next.js application foundation and tenant workspace [IMPLEMENTED — APPLICATION FOUNDATION].
 - `/apps/worker`: Planned standalone background job daemon [PLANNED]. (Core outbox and worker engines are in `/packages/core` [IMPLEMENTED]).
 - `/packages/types`: Shared TypeScript interfaces, entity models, and Zod schemas [IMPLEMENTED].
 - `/packages/database`: PostgreSQL schema, RLS policies, composite FK migrations, and migration runner [IMPLEMENTED].
