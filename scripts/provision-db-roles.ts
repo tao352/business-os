@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { pool } from "../packages/database/src/client.js";
+import { migratorPool } from "../packages/database/src/client.js";
 import { logger } from "@business-os/logger";
 
 export interface ProvisionRolesOptions {
@@ -65,7 +65,7 @@ export async function provisionRuntimeDbRoles(
     );
   }
 
-  const client = customClient || (await pool.connect());
+  const client = customClient || (await migratorPool.connect());
   const shouldRelease = !customClient;
 
   try {
@@ -118,14 +118,16 @@ export async function provisionRuntimeDbRoles(
 // CLI entry point
 if (process.argv[1]?.includes("provision-db-roles")) {
   provisionRuntimeDbRoles()
-    .then((result) => {
+    .then(async (result) => {
+      await migratorPool.end();
       // eslint-disable-next-line no-console
       console.log(
         `[Provisioning] Role '${result.username}' configured successfully.`,
       );
       process.exit(0);
     })
-    .catch((err) => {
+    .catch(async (err) => {
+      await migratorPool.end();
       // eslint-disable-next-line no-console
       console.error(`[Provisioning] FAILED: ${err.message}`);
       process.exit(1);

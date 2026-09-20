@@ -4,6 +4,7 @@ import {
   pool,
   migratorPool,
   withTenantContext,
+  resetMigratorPoolForTesting,
 } from "../packages/database/src/index.js";
 import type { TenantContext } from "@business-os/types";
 import {
@@ -13,9 +14,11 @@ import {
   sendWhatsAppMessage,
   processPendingWhatsAppOutbox,
   MockWhatsAppApiClient,
+  DefaultWhatsAppApiClient,
   WhatsAppApiError,
   enqueueWhatsAppOutbound,
 } from "../packages/core/src/index.js";
+import { provisionRuntimeDbRoles } from "../scripts/provision-db-roles.js";
 
 async function createIsolatedTenant(prefix: string): Promise<{
   tenantContext: TenantContext;
@@ -432,9 +435,117 @@ describe("H0 Stabilization Patch v2.4 — Concurrency, Rollback Guarantees & Ret
       expect(check.retryCount).toBe(check.maxRetries);
       expect(check.lastError).toContain("Ambiguous network dispatch failure");
     });
+
+    it("rejects 200 OK response with missing WAMID without fabricating fake WAMID and terminates outbox processing", async () => {
+      // 1. Direct unit verification of DefaultWhatsAppApiClient:
+      const defaultClient = new DefaultWhatsAppApiClient();
+      const originalFetch = globalThis.fetch;
+
+      try {
+        // Mock fetch returning 200 OK with empty messages array (missing provider WAMID)
+        globalThis.fetch = async () =>
+          new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+
+        await expect(
+          defaultClient.sendText(
+            "phone_123",
+            "token_abc",
+            "+201012345678",
+            "Hello",
+          ),
+        ).rejects.toThrow(/missing provider message ID in payload/);
+
+        // Verify valid 200 with WAMID succeeds normally
+        globalThis.fetch = async () =>
+          new Response(
+            JSON.stringify({ messages: [{ id: "wamid.realMetaValid123" }] }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+
+        const validRes = await defaultClient.sendText(
+          "phone_123",
+          "token_abc",
+          "+201012345678",
+          "Hello",
+        );
+        expect(validRes.wamid).toBe("wamid.realMetaValid123");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      // 2. Outbox pipeline integration verification:
+      const { tenantContext, waPhoneId } =
+        await createIsolatedTenant("wamid200");
+      const mockClient = new MockWhatsAppApiClient();
+      const recipient = "+201012340007";
+
+      const msg = await sendWhatsAppMessage(tenantContext, {
+        phoneNumberId: waPhoneId,
+        recipientPhone: recipient,
+        text: "Message expecting missing WAMID error",
+      });
+
+      mockClient.nextError = new WhatsAppApiError(
+        'Meta Graph API responded 200 OK but missing provider message ID in payload: {"messages":[]}',
+        200,
+        false, // non-retryable (terminal provider protocol error)
+        false, // non-ambiguous
+      );
+
+      const pass = await processPendingWhatsAppOutbox(
+        tenantContext,
+        mockClient,
+      );
+      expect(pass.failed).toBe(1);
+
+      const check = await withTenantContext(
+        tenantContext.organizationId,
+        async (tx) => {
+          const msgRes = await tx.query(
+            `SELECT status, wamid FROM whatsapp_messages WHERE id = $1 AND organization_id = $2`,
+            [msg.id, tenantContext.organizationId],
+          );
+          const outboxRes = await tx.query(
+            `SELECT status, retry_count, max_retries, last_error FROM outbox_events WHERE payload->>'messageId' = $1 AND organization_id = $2`,
+            [msg.id, tenantContext.organizationId],
+          );
+          return {
+            msgStatus: msgRes.rows[0]?.status,
+            wamid: msgRes.rows[0]?.wamid,
+            outboxStatus: outboxRes.rows[0]?.status,
+            retryCount: outboxRes.rows[0]?.retry_count,
+            maxRetries: outboxRes.rows[0]?.max_retries,
+            lastError: outboxRes.rows[0]?.last_error,
+          };
+        },
+      );
+
+      // Must be FAILED (never marked SENT without real provider WAMID)
+      expect(check.msgStatus).toBe("FAILED");
+      expect(check.wamid).toBeNull();
+      expect(check.outboxStatus).toBe("FAILED");
+      expect(check.retryCount).toBe(check.maxRetries);
+      expect(check.lastError).toContain(
+        "Terminal WhatsApp provider failure (200)",
+      );
+
+      // Second worker run: outbox event must NOT be retried
+      const pass2 = await processPendingWhatsAppOutbox(
+        tenantContext,
+        mockClient,
+      );
+      expect(pass2.processed).toBe(0);
+      expect(pass2.failed).toBe(0);
+    });
   });
 
-  describe("4. Administrative Migrator Pool Separation", () => {
+  describe("4. Administrative Migrator Pool Separation & Production Fail-Closed", () => {
     it("ensures migratorPool connects and can query schema_migrations independently", async () => {
       expect(migratorPool).toBeDefined();
       expect(migratorPool).not.toBe(pool);
@@ -448,6 +559,37 @@ describe("H0 Stabilization Patch v2.4 — Concurrency, Rollback Guarantees & Ret
       } finally {
         client.release();
       }
+    });
+
+    it("fails closed in production environment if MIGRATOR_DATABASE_URL is absent", async () => {
+      const originalEnv = process.env.NODE_ENV;
+      const originalMigratorUrl = process.env.MIGRATOR_DATABASE_URL;
+
+      try {
+        process.env.NODE_ENV = "production";
+        delete process.env.MIGRATOR_DATABASE_URL;
+        resetMigratorPoolForTesting();
+
+        expect(() => migratorPool.connect()).toThrow(
+          "MIGRATOR_DATABASE_URL is strictly required for administrative database operations in production environment.",
+        );
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+        if (originalMigratorUrl !== undefined) {
+          process.env.MIGRATOR_DATABASE_URL = originalMigratorUrl;
+        } else {
+          delete process.env.MIGRATOR_DATABASE_URL;
+        }
+        resetMigratorPoolForTesting();
+      }
+    });
+
+    it("executes role provisioning using migratorPool successfully", async () => {
+      const result = await provisionRuntimeDbRoles(undefined, {
+        nodeEnv: "development",
+      });
+      expect(result.username).toBe("app_user");
+      expect(result.provisioned).toBe(true);
     });
   });
 });

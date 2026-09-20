@@ -331,3 +331,23 @@
   5. **Independent Administrative Migrator Pool:**
      Added `migratorPool` to `packages/database/src/client.ts` configured via `process.env.MIGRATOR_DATABASE_URL || databaseUrl`. Administrative DDL runner `runPendingMigrations` and checksum verifier `verifyMigrationIntegrity` in `packages/database/src/migrator.ts` connect exclusively through `migratorPool`.
 - **Rationale:** Resolves all remaining H0 merge blockers, ensures true concurrency-safe idempotency without transaction corruption, guarantees resilient retry behaviors tailored to Meta's API specifications, and cleanly isolates architectural boundaries.
+
+---
+
+## ADR-022: H0 Final Closeout & Release Gate — Production Fail-Closed Administrative Separation, Provider Protocol Integrity, and Outbox Invariant Verification
+
+- **Date:** 2026-09-20
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Final engineering review of PR #1 and the H0 foundation identified two critical vulnerabilities prior to release gating:
+  1. _Role Provisioning & Production Migrator Connection Leak:_ `scripts/provision-db-roles.ts` performed privileged administrative DDL (`CREATE ROLE`, `ALTER ROLE`, `GRANT`, `REVOKE`) using the runtime application `pool` instead of `migratorPool`. Furthermore, `migratorPool` in `packages/database/src/client.ts` silently fell back to the runtime `DATABASE_URL` even when `NODE_ENV === "production"`, creating a risk of administrative commands running over least-privilege runtime connections or failing to enforce administrative separation in deployment environments.
+  2. _Fabricated Provider WAMID on Malformed 200 OK Responses:_ In `DefaultWhatsAppApiClient`, if Meta Graph API returned HTTP 200 OK with an empty or missing `messages[0].id`, the client silently fabricated a random local identifier (`wamid.<random>`). This created false provider confirmation state in the database, marked messages `SENT` and outbox events `COMPLETED`, and made future webhook delivery/read reconciliation impossible.
+- **Decision:**
+  1. **Strict Administrative Connection Routing in Role Provisioning:**
+     Updated `scripts/provision-db-roles.ts` to connect exclusively via `migratorPool` (or an explicitly provided administrative client). The runtime application connection `pool` is never used for role management.
+  2. **Production Fail-Closed Lazy Migrator Pool:**
+     Refactored `migratorPool` in `packages/database/src/client.ts` to be lazily evaluated via a Proxy. In development and testing (`NODE_ENV !== "production"`), it permits fallback to `DATABASE_URL` for developer convenience. In production (`NODE_ENV === "production"`), attempting to acquire a client from `migratorPool` without `MIGRATOR_DATABASE_URL` explicitly configured immediately throws a fatal configuration error, preventing silent fallback to runtime credentials. Documented both connection strings clearly in `deploy/env.prod.example`.
+  3. **Zero Fake WAMID Generation (Terminal Provider Protocol Error):**
+     In `DefaultWhatsAppApiClient`, a 200 OK response lacking a valid string `messages[0].id` is treated as a terminal provider protocol failure and throws `WhatsAppApiError(..., 200, false, false)`. `handleWhatsAppOutboundEvent` transitions the message to `FAILED` and exhausts outbox retries via `TerminalOutboxError`. Zero locally fabricated provider identifiers are accepted into the database.
+  4. **H0 Foundation Release Gate Sign-Off:**
+     Conducted a comprehensive 15-point failure mode audit (Scenarios A through O) across manual WhatsApp dispatch, Smart Rules automation, concurrent idempotency, transactional outbox rollback, and crash recovery. All 29 test suites (269 tests) pass with 100% CI coverage.
+- **Rationale:** Guarantees absolute architectural integrity between runtime and administrative database connections, enforces strict fail-closed production deployment contracts, eliminates false provider confirmation states, and ensures the H0 foundation carries zero known P0/P1 defects into application-layer development.

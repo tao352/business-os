@@ -117,11 +117,17 @@ export class DefaultWhatsAppApiClient implements WhatsAppApiClient {
     }
 
     const data = (await res.json()) as any;
-    return {
-      wamid:
-        data.messages?.[0]?.id ||
-        `wamid.${crypto.randomBytes(8).toString("hex")}`,
-    };
+    const wamid = data?.messages?.[0]?.id;
+    if (!wamid || typeof wamid !== "string") {
+      throw new WhatsAppApiError(
+        `Meta Graph API responded 200 OK but missing provider message ID in payload: ${JSON.stringify(data)}`,
+        200,
+        false, // terminal provider protocol error
+        false, // non-ambiguous
+        data,
+      );
+    }
+    return { wamid };
   }
 
   async sendText(
@@ -187,11 +193,17 @@ export class DefaultWhatsAppApiClient implements WhatsAppApiClient {
     }
 
     const data = (await res.json()) as any;
-    return {
-      wamid:
-        data.messages?.[0]?.id ||
-        `wamid.${crypto.randomBytes(8).toString("hex")}`,
-    };
+    const wamid = data?.messages?.[0]?.id;
+    if (!wamid || typeof wamid !== "string") {
+      throw new WhatsAppApiError(
+        `Meta Graph API responded 200 OK but missing provider message ID in payload: ${JSON.stringify(data)}`,
+        200,
+        false, // terminal provider protocol error
+        false, // non-ambiguous
+        data,
+      );
+    }
+    return { wamid };
   }
 }
 
