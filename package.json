@@ -5,7 +5,10 @@
   "description": "AI-Configurable Business Operating System (Real Estate First)",
   "packageManager": "pnpm@12.4.2",
   "scripts": {
-    "build": "pnpm --filter \"./packages/*\" build",
+    "build": "pnpm --filter \"./packages/*\" build && pnpm --filter @business-os/web build",
+    "build:packages": "pnpm --filter \"./packages/*\" build",
+    "web:build": "pnpm --filter @business-os/web build",
+    "web:dev": "pnpm --filter @business-os/web dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
