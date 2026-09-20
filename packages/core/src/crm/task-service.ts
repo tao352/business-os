@@ -1,6 +1,10 @@
 import { withTenantContext } from "@business-os/database";
 import type { TenantContext } from "@business-os/types";
-import { assertPermission } from "../permissions/checker.js";
+import {
+  assertPermission,
+  assertCanAccessIndividualLeadRecords,
+} from "../permissions/checker.js";
+import { getLead } from "./lead-service.js";
 
 export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
@@ -63,6 +67,17 @@ export async function listTasks(
   context: TenantContext,
   filters: ListTasksFilters = {},
 ) {
+  // MARKETING_USER is restricted to aggregate metrics only
+  if (context.role === "MARKETING_USER") {
+    return [];
+  }
+
+  // If tasks for a specific lead are requested, assert lead access and ownership
+  if (filters.leadId) {
+    assertCanAccessIndividualLeadRecords(context);
+    await getLead(context, filters.leadId);
+  }
+
   return await withTenantContext(context.organizationId, async (tx) => {
     const conditions: string[] = ["1 = 1"];
     const params: unknown[] = [];

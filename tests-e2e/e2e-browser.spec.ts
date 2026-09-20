@@ -162,4 +162,75 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       "Too many login attempts. Please try again later.",
     );
   });
+
+  test("5. Role authorization boundary: MARKETING_USER sees aggregated metrics only and cannot access individual dossiers or privileged pages", async ({
+    page,
+  }) => {
+    // Clear cookies and authenticate as MARKETING_USER
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await page
+      .locator('input[type="email"]')
+      .fill(fixtures.userMarketing.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userMarketing.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/app(\?.*)?$/);
+    await expect(page.locator("body")).toContainText("MARKETING_USER");
+
+    // Verify sidebar navigation items
+    await expect(page.locator('aside a[href="/app"]')).toBeVisible();
+    await expect(page.locator('aside a[href="/app/leads"]')).toBeVisible();
+    // Privileged and inventory items MUST NOT be visible in sidebar
+    await expect(
+      page.locator('aside a[href="/app/automations"]'),
+    ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/integrations"]'),
+    ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/settings"]'),
+    ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/projects"]'),
+    ).not.toBeVisible();
+    await expect(page.locator('aside a[href="/app/units"]')).not.toBeVisible();
+
+    // Navigate to /app/leads
+    await page.goto("/app/leads");
+    await page.waitForURL(/\/app\/leads/);
+    await expect(page.locator("h1")).toContainText("Leads");
+
+    // Verify individual customer records are restricted notice
+    await expect(page.locator("body")).toContainText(
+      /Individual lead records are not available|Individual Customer Records Restricted/,
+    );
+
+    // Confirm that individual lead contact info (phone) is NOT visible in page
+    await expect(page.locator("body")).not.toContainText(fixtures.leadA.phone);
+
+    // Negative Test: Direct navigation to lead workspace MUST return 404 / not-found
+    const leadDetailUrl = `/app/leads/${fixtures.leadA.id}`;
+    const leadDetailRes = await page.goto(leadDetailUrl);
+    const isLeadDetail404 =
+      leadDetailRes?.status() === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(isLeadDetail404).toBe(true);
+
+    // Negative Test: Direct navigation to automations MUST return 404 / not-found
+    const automationsRes = await page.goto("/app/automations");
+    const isAutomations404 =
+      automationsRes?.status() === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(isAutomations404).toBe(true);
+
+    // Negative Test: Direct navigation to integrations MUST return 404 / not-found
+    const integrationsRes = await page.goto("/app/integrations");
+    const isIntegrations404 =
+      integrationsRes?.status() === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(isIntegrations404).toBe(true);
+  });
 });

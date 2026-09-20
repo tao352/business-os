@@ -7,8 +7,12 @@ import {
   createOrganization,
   inviteMember,
   createLead,
+  getLead,
+  listLeads,
   logActivity,
+  listLeadActivities,
   createTask,
+  listTasks,
   getDashboardOverview,
   listLeadsPage,
   getLeadWorkspace,
@@ -189,25 +193,25 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
       expect(leadIdsInActivity).toContain(lead1.id);
       expect(leadIdsInActivity).toContain(lead2.id);
     });
+
+    it("allows MARKETING_USER to access aggregated dashboard metrics without leaking PII or tasks", async () => {
+      const dashboard = await getDashboardOverview(marketingContext);
+      expect(dashboard.totalLeads).toBeGreaterThanOrEqual(2);
+      expect(dashboard.newLeads).toBeGreaterThanOrEqual(1);
+      expect(dashboard.openTasks).toBe(0);
+      expect(dashboard.recentActivities).toEqual([]);
+      expect(dashboard.recentLeads).toEqual([]);
+      expect(dashboard.openTasksList).toEqual([]);
+    });
   });
 
-  describe("2. listLeadsPage (Server-Side Field-Level PII Redaction)", () => {
-    it("redacts contact phone, email, and full_name for MARKETING_USER", async () => {
+  describe("2. listLeadsPage (Server-Side Field-Level PII Redaction & Aggregate Enforcing)", () => {
+    it("returns aggregate count only and withholds individual lead rows for MARKETING_USER", async () => {
       const result = await listLeadsPage(marketingContext);
 
       expect(result.totalCount).toBeGreaterThanOrEqual(2);
-      expect(result.leads.length).toBeGreaterThanOrEqual(2);
-
-      for (const lead of result.leads) {
-        expect(lead.contact_info_redacted).toBe(true);
-        expect(lead.phone).toBeUndefined();
-        expect(lead.email).toBeUndefined();
-        expect(lead.full_name).toBeUndefined();
-        // Non-PII metadata remains accessible
-        expect(lead.status).toBeDefined();
-        expect(lead.source).toBeDefined();
-        expect(lead.id).toBeDefined();
-      }
+      expect(result.leads).toEqual([]);
+      expect(result.individualRecordsRestricted).toBe(true);
     });
 
     it("provides full contact details to authorized OWNER", async () => {
@@ -236,15 +240,12 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
   });
 
   describe("3. getLeadWorkspace (Detail Workspace Read Model)", () => {
-    it("redacts contact PII in workspace when accessed by MARKETING_USER", async () => {
-      const workspace = await getLeadWorkspace(marketingContext, lead1.id);
-
-      expect(workspace.lead.id).toBe(lead1.id);
-      expect(workspace.lead.contact_info_redacted).toBe(true);
-      expect(workspace.lead.phone).toBeUndefined();
-      expect(workspace.lead.email).toBeUndefined();
-      expect(workspace.lead.full_name).toBeUndefined();
-      expect(workspace.activities.length).toBeGreaterThanOrEqual(1);
+    it("strictly blocks MARKETING_USER from accessing individual lead workspace dossiers", async () => {
+      await expect(
+        getLeadWorkspace(marketingContext, lead1.id),
+      ).rejects.toThrow(
+        /Role 'MARKETING_USER' is restricted to aggregated analytics/,
+      );
     });
 
     it("returns complete lead workspace including tasks, timeline, and assignee for OWNER", async () => {
@@ -259,7 +260,7 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
       expect(workspace.tasks[0].title).toBe(
         "Follow up with Alice on contract terms",
       );
-      expect(workspace.members.length).toBeGreaterThanOrEqual(3);
+      expect(workspace.members.length).toBeGreaterThanOrEqual(4);
     });
 
     it("rejects SALESPERSON attempting to read a lead assigned to another agent", async () => {
@@ -369,6 +370,40 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
       expect(settings.organization?.id).toBe(orgId);
       expect(settings.organization?.name).toBe(`ReadModel Dev Corp ${unique}`);
       expect(settings.members.length).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  describe("5. Core Service RBAC & Individual Lead Access Policy Enforcement", () => {
+    it("strictly denies MARKETING_USER on getLead(), listLeads(), listLeadActivities(), listTasks()", async () => {
+      await expect(getLead(marketingContext, lead1.id)).rejects.toThrow();
+      await expect(listLeads(marketingContext)).rejects.toThrow();
+      await expect(
+        listLeadActivities(marketingContext, lead1.id),
+      ).rejects.toThrow();
+      const tasks = await listTasks(marketingContext);
+      expect(tasks).toEqual([]);
+    });
+
+    it("denies SALESPERSON from reading lead assigned to another agent across all CRM services", async () => {
+      await expect(getLead(sales1Context, lead2.id)).rejects.toThrow();
+      await expect(
+        listLeadActivities(sales1Context, lead2.id),
+      ).rejects.toThrow();
+      await expect(
+        listTasks(sales1Context, { leadId: lead2.id }),
+      ).rejects.toThrow();
+    });
+
+    it("denies non-admin roles from accessing privileged system configurations", async () => {
+      // SALESPERSON cannot access automation rules, integration status, or organization settings
+      await expect(listAutomationRules(sales1Context)).rejects.toThrow();
+      await expect(getIntegrationStatus(sales1Context)).rejects.toThrow();
+      await expect(getOrganizationSettings(sales1Context)).rejects.toThrow();
+
+      // MARKETING_USER cannot access automation rules, integration status, or settings
+      await expect(listAutomationRules(marketingContext)).rejects.toThrow();
+      await expect(getIntegrationStatus(marketingContext)).rejects.toThrow();
+      await expect(getOrganizationSettings(marketingContext)).rejects.toThrow();
     });
   });
 });

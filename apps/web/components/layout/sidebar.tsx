@@ -55,27 +55,54 @@ export function Sidebar({ session, onNavClick }: SidebarProps) {
     }
   };
 
+  // Role-aware navigation gating
+  const role = session.role;
+  const isPrivileged = role === "OWNER" || role === "ADMIN";
+  const canAccessInventory = role !== "MARKETING_USER";
+
+  const workspaceItems = [
+    { label: "Overview", href: "/app", icon: LayoutDashboard },
+    { label: "Leads", href: "/app/leads", icon: Users },
+    ...(canAccessInventory
+      ? [
+          { label: "Projects", href: "/app/projects", icon: Building2 },
+          { label: "Units", href: "/app/units", icon: Boxes },
+        ]
+      : []),
+  ];
+
+  const intelligenceItems = isPrivileged
+    ? [{ label: "Automations", href: "/app/automations", icon: Cpu }]
+    : [];
+
+  const systemItems = isPrivileged
+    ? [
+        { label: "Integrations", href: "/app/integrations", icon: Share2 },
+        { label: "Settings", href: "/app/settings", icon: Settings },
+      ]
+    : [];
+
   const navSections = [
     {
       title: "Workspace",
-      items: [
-        { label: "Overview", href: "/app", icon: LayoutDashboard },
-        { label: "Leads", href: "/app/leads", icon: Users },
-        { label: "Projects", href: "/app/projects", icon: Building2 },
-        { label: "Units", href: "/app/units", icon: Boxes },
-      ],
+      items: workspaceItems,
     },
-    {
-      title: "Intelligence",
-      items: [{ label: "Automations", href: "/app/automations", icon: Cpu }],
-    },
-    {
-      title: "System",
-      items: [
-        { label: "Integrations", href: "/app/integrations", icon: Share2 },
-        { label: "Settings", href: "/app/settings", icon: Settings },
-      ],
-    },
+    ...(intelligenceItems.length > 0
+      ? [
+          {
+            title: "Intelligence",
+            items: intelligenceItems,
+          },
+        ]
+      : []),
+    ...(systemItems.length > 0
+      ? [
+          {
+            title: "System",
+            items: systemItems,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -187,7 +214,7 @@ export function Sidebar({ session, onNavClick }: SidebarProps) {
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-[10px] text-sidebar-text uppercase font-semibold">
-                {session.role}
+                {role}
               </span>
             </div>
           </div>

@@ -1,11 +1,11 @@
-import { withTenantContext, pool } from "@business-os/database";
-import { logger } from "@business-os/logger";
-import type { TenantContext, LeadStatus } from "@business-os/types";
+import { withTenantContext } from "@business-os/database";
+import type { TenantContext, LeadStatus, Lead, Task } from "@business-os/types";
 import {
   assertPermission,
   can,
-  hasRolePermission,
+  assertCanAccessIndividualLeadRecords,
 } from "../permissions/checker.js";
+import { ForbiddenError } from "../permissions/types.js";
 import { listOrganizationMembers } from "../permissions/member-service.js";
 import { getLead, listLeads } from "../crm/lead-service.js";
 import { listLeadActivities } from "../crm/activity-service.js";
@@ -32,26 +32,28 @@ export interface DashboardOverviewData {
   openTasks: number;
   dueFollowups: number;
   recentActivities: DashboardActivity[];
-  recentLeads: any[];
-  openTasksList: any[];
+  recentLeads: Lead[];
+  openTasksList: Task[];
 }
 
 /**
  * High-performance dashboard read model.
  * Strictly role-aware: for SALESPERSON, scopes lead counts, task counts, and
  * recent activities to only records/leads assigned to the authenticated user.
+ * For MARKETING_USER, returns aggregated KPI metrics while strictly withholding
+ * individual dossiers, activities, and tasks.
  */
 export async function getDashboardOverview(
   context: TenantContext,
 ): Promise<DashboardOverviewData> {
-  assertPermission(context, "read", "lead");
+  if (!can(context, "read", "lead") && !can(context, "read_all", "lead")) {
+    throw new ForbiddenError(context.role, "read", "lead");
+  }
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const isSalesperson = context.role === "SALESPERSON";
+    const isMarketingUser = context.role === "MARKETING_USER";
     const leadFilter = isSalesperson ? "WHERE assigned_user_id = $1" : "";
-    const taskFilter = isSalesperson
-      ? "WHERE assigned_user_id = $1"
-      : "WHERE 1=1";
     const params = isSalesperson ? [context.userId] : [];
 
     // 1. Aggregated KPI Counts
@@ -62,6 +64,23 @@ export async function getDashboardOverview(
        FROM leads ${leadFilter}`,
       params,
     );
+
+    // MARKETING_USER is strictly aggregate-only: no individual customer records, activities, or tasks
+    if (isMarketingUser) {
+      return {
+        totalLeads: parseInt(leadCounts.rows[0]?.total_leads || "0", 10),
+        newLeads: parseInt(leadCounts.rows[0]?.new_leads || "0", 10),
+        openTasks: 0,
+        dueFollowups: 0,
+        recentActivities: [],
+        recentLeads: [],
+        openTasksList: [],
+      };
+    }
+
+    const taskFilter = isSalesperson
+      ? "WHERE assigned_user_id = $1"
+      : "WHERE 1=1";
 
     const taskCounts = await tx.query(
       `SELECT
@@ -101,31 +120,15 @@ export async function getDashboardOverview(
     }
 
     const activitiesRes = await tx.query(activitiesQuery, activitiesParams);
-    let recentActivities: DashboardActivity[] = activitiesRes.rows;
-
-    // Field-level PII protection: MARKETING_USER cannot see individual lead names in activity feed
-    if (context.role === "MARKETING_USER") {
-      recentActivities = recentActivities.map((act) => ({
-        ...act,
-        lead_name: act.lead_name ? "[CONFIDENTIAL]" : null,
-      }));
-    }
+    const recentActivities: DashboardActivity[] = activitiesRes.rows;
 
     // 3. Recent Leads (Role-constrained via core lead service)
-    let recentLeads = await listLeads(context, { limit: 5 });
-    if (context.role === "MARKETING_USER") {
-      recentLeads = recentLeads.map((row) => {
-        const sanitized = { ...row };
-        delete sanitized.phone;
-        delete sanitized.email;
-        delete sanitized.full_name;
-        sanitized.contact_info_redacted = true;
-        return sanitized;
-      });
-    }
+    const recentLeads = (await listLeads(context, { limit: 5 })) as Lead[];
 
     // 4. Open Tasks (Role-constrained via core task service)
-    const openTasks = await listTasks(context, { isCompleted: false });
+    const openTasks = (await listTasks(context, {
+      isCompleted: false,
+    })) as unknown as Task[];
     const openTasksList = openTasks.slice(0, 5);
 
     return {
@@ -170,23 +173,40 @@ export interface ListLeadsPageResult {
   totalCount: number;
   page: number;
   pageSize: number;
+  individualRecordsRestricted?: boolean;
 }
 
 /**
  * Paginated and filtered Leads listing read model.
- * Strictly enforces server-side PII redaction: for MARKETING_USER, deletes phone,
- * email, and full_name, marking contact_info_redacted: true.
+ * Strictly enforces aggregate-only access: for MARKETING_USER, individual
+ * records are withheld (empty array), returning totalCount and individualRecordsRestricted: true.
  * For SALESPERSON, strictly filters by assigned_user_id.
  */
 export async function listLeadsPage(
   context: TenantContext,
   filters: ListLeadsPageFilters = {},
 ): Promise<ListLeadsPageResult> {
-  assertPermission(context, "read", "lead");
+  if (!can(context, "read", "lead") && !can(context, "read_all", "lead")) {
+    throw new ForbiddenError(context.role, "read", "lead");
+  }
 
   const currentPage = Math.max(1, filters.page || 1);
   const pageSize = Math.min(Math.max(filters.pageSize || 20, 1), 100);
   const offset = (currentPage - 1) * pageSize;
+
+  if (context.role === "MARKETING_USER") {
+    return await withTenantContext(context.organizationId, async (tx) => {
+      const countRes = await tx.query("SELECT COUNT(*) as total FROM leads");
+      const totalCount = parseInt(countRes.rows[0]?.total || "0", 10);
+      return {
+        leads: [],
+        totalCount,
+        page: 1,
+        pageSize,
+        individualRecordsRestricted: true,
+      };
+    });
+  }
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const conditions: string[] = ["1 = 1"];
@@ -240,19 +260,7 @@ export async function listLeadsPage(
       offset,
     ]);
 
-    let leads: LeadPageRow[] = rowsRes.rows;
-
-    // Field-level PII protection: MARKETING_USER cannot access individual contact details
-    if (context.role === "MARKETING_USER") {
-      leads = leads.map((row) => {
-        const sanitized = { ...row };
-        delete sanitized.phone;
-        delete sanitized.email;
-        delete sanitized.full_name;
-        sanitized.contact_info_redacted = true;
-        return sanitized;
-      });
-    }
+    const leads: LeadPageRow[] = rowsRes.rows;
 
     return {
       leads,
@@ -267,32 +275,38 @@ export async function listLeadsPage(
 // 3. LEAD DETAIL WORKSPACE READ MODEL
 // ==============================================================================
 
+export interface LeadActivityItem {
+  id: string;
+  lead_id: string;
+  user_id: string;
+  author_name: string;
+  activity_type: string;
+  summary: string;
+  details?: Record<string, unknown> | null;
+  created_at: string | Date;
+}
+
 export interface LeadWorkspaceData {
-  lead: any;
+  lead: Lead & { contact_info_redacted?: boolean };
   assignedName: string | null;
-  activities: any[];
-  tasks: any[];
+  activities: LeadActivityItem[];
+  tasks: Task[];
   members: Array<{ user_id: string; full_name: string; role: string }>;
 }
 
 /**
  * Complete Lead detail workspace read model.
- * Asserts row-level ownership, loads timeline activities, tasks, and assignable members.
- * Redacts contact PII if caller is MARKETING_USER.
+ * Asserts individual lead access permission (throws ForbiddenError for MARKETING_USER),
+ * verifies row-level ownership, loads timeline activities, tasks, and assignable members.
  */
 export async function getLeadWorkspace(
   context: TenantContext,
   leadId: string,
 ): Promise<LeadWorkspaceData> {
-  const rawLead = await getLead(context, leadId);
+  assertCanAccessIndividualLeadRecords(context);
 
+  const rawLead = (await getLead(context, leadId)) as Lead;
   const lead = { ...rawLead };
-  if (context.role === "MARKETING_USER") {
-    lead.contact_info_redacted = true;
-    delete lead.phone;
-    delete lead.email;
-    delete lead.full_name;
-  }
 
   // 1. Fetch assigned agent name safely
   let assignedName: string | null = null;
@@ -313,20 +327,25 @@ export async function getLeadWorkspace(
   }
 
   // 2. Fetch timeline activities and follow-up tasks
-  const activities = await listLeadActivities(context, leadId);
-  const tasks = await listTasks(context, { leadId });
+  const activities = (await listLeadActivities(
+    context,
+    leadId,
+  )) as LeadActivityItem[];
+  const tasks = (await listTasks(context, { leadId })) as unknown as Task[];
 
-  // 3. Fetch assignable organization members
+  // 3. Fetch assignable organization members if caller has permission
   let members: Array<{ user_id: string; full_name: string; role: string }> = [];
-  try {
-    const rawMembers = await listOrganizationMembers(context);
-    members = rawMembers.map((m: any) => ({
-      user_id: m.user_id,
-      full_name: m.full_name || m.email,
-      role: m.role,
-    }));
-  } catch {
-    // If not permitted, members array remains empty
+  if (can(context, "read", "member")) {
+    try {
+      const rawMembers = await listOrganizationMembers(context);
+      members = rawMembers.map((m) => ({
+        user_id: m.user_id,
+        full_name: m.full_name || m.email,
+        role: m.role,
+      }));
+    } catch {
+      // If not permitted, members array remains empty
+    }
   }
 
   return {
@@ -505,23 +524,13 @@ export interface IntegrationStatusResult {
 
 /**
  * Queries meta_integrations and whatsapp_integrations securely.
+ * Asserts read permission on organization configuration.
  * Masking helper to ensure zero token or secret leakage.
  */
 export async function getIntegrationStatus(
   context: TenantContext,
 ): Promise<IntegrationStatusResult> {
-  // Enforce read access on organization configuration
-  if (
-    !hasRolePermission(context.role, "read", "organization") &&
-    context.role !== "OWNER" &&
-    context.role !== "ADMIN"
-  ) {
-    // Graceful fallback for non-admin viewers
-    return {
-      meta: { connected: false },
-      whatsapp: { connected: false },
-    };
-  }
+  assertPermission(context, "read", "organization");
 
   return await withTenantContext(context.organizationId, async (tx) => {
     // 1. Meta Lead Ads Integration
@@ -591,10 +600,13 @@ export interface AutomationRuleItem {
 
 /**
  * Lists automation rules using the authentic automation_rules schema.
+ * Asserts read permission on smart_rule.
  */
 export async function listAutomationRules(
   context: TenantContext,
 ): Promise<AutomationRuleItem[]> {
+  assertPermission(context, "read", "smart_rule");
+
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
       `SELECT id, name, description, trigger_type, is_active, version,
@@ -624,6 +636,17 @@ export async function listAutomationRules(
 // 8. ORGANIZATION SETTINGS READ MODEL
 // ==============================================================================
 
+function maskEmail(email: string): string {
+  if (!email || !email.includes("@")) return "••••••••";
+  const parts = email.split("@");
+  const user = parts[0];
+  const domain = parts[1];
+  if (!user || !domain || user.length <= 2) {
+    return `*@${domain || ""}`;
+  }
+  return `${user[0]}***${user[user.length - 1]}@${domain}`;
+}
+
 export interface OrganizationSettingsData {
   organization: {
     id: string;
@@ -645,10 +668,15 @@ export interface OrganizationSettingsData {
 
 /**
  * Retrieves workspace profile and active team members.
+ * Requires read permission on organization.
+ * Only populates members if caller has permission to read member;
+ * for non-admin/owner roles, masks member emails.
  */
 export async function getOrganizationSettings(
   context: TenantContext,
 ): Promise<OrganizationSettingsData> {
+  assertPermission(context, "read", "organization");
+
   return await withTenantContext(context.organizationId, async (tx) => {
     // 1. Fetch organization details
     const orgRes = await tx.query(
@@ -658,11 +686,24 @@ export async function getOrganizationSettings(
     const organization = orgRes.rows[0] || null;
 
     // 2. Fetch members if caller has permission
-    let members: any[] = [];
-    try {
-      members = await listOrganizationMembers(context);
-    } catch {
-      // If user lacks permission to list members, return empty array
+    let members: OrganizationSettingsData["members"] = [];
+    if (can(context, "read", "member")) {
+      try {
+        const rawMembers = await listOrganizationMembers(context);
+        const isPrivileged =
+          context.role === "OWNER" || context.role === "ADMIN";
+        members = rawMembers.map((m) => ({
+          id: m.id,
+          user_id: m.user_id,
+          email: isPrivileged ? m.email : maskEmail(m.email),
+          full_name: m.full_name || m.email,
+          role: m.role,
+          is_active: Boolean(m.is_active),
+          created_at: m.created_at,
+        }));
+      } catch {
+        members = [];
+      }
     }
 
     return {

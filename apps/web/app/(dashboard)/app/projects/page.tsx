@@ -1,4 +1,5 @@
 import React from "react";
+import { notFound } from "next/navigation";
 import { listProjectsOverview } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Building2, MapPin } from "lucide-react";
@@ -7,7 +8,12 @@ export default async function ProjectsPage() {
   const context = await requireTenantContext();
 
   // Fetch real estate projects overview via core read-model service
-  const projects = await listProjectsOverview(context);
+  let projects: Awaited<ReturnType<typeof listProjectsOverview>>;
+  try {
+    projects = await listProjectsOverview(context);
+  } catch {
+    notFound();
+  }
 
   return (
     <div className="space-y-6">

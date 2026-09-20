@@ -63,11 +63,104 @@ jobs:
       - name: Strict Typecheck
         run: pnpm run typecheck
 
+      - name: Provision Runtime Database Roles
+        run: pnpm run db:provision-roles
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          APP_DB_PASSWORD: app_password
+
       - name: Run Vitest Test Suites
         run: pnpm run test
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          APP_DATABASE_URL: postgres://app_user:app_password@localhost:5432/business_os
+          APP_DB_PASSWORD: app_password
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+          NODE_ENV: test
+
+  e2e:
+    name: Browser E2E & Visual QA
+    runs-on: ubuntu-latest
+    needs: validate
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: business_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers & OS Dependencies
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build Monorepo & Web App
+        run: pnpm run build
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+
+      - name: Run Playwright Browser E2E Tests
+        run: pnpm run test:e2e
         env:
           DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
           ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
-          NODE_ENV: test
+          ALLOW_LOCAL_DEV_CREDS: "true"
+          CI: "true"
+
+      - name: Run Playwright Responsive Visual QA Tests
+        run: pnpm run test:visual
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/business_os
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-for-ci-minimum-32-chars-key-2026
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-ci-safe
+          ALLOW_LOCAL_DEV_CREDS: "true"
+          CI: "true"
+
+      - name: Upload Visual QA Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase21-visual-qa
+          path: tests-e2e/screenshots/*.png
+          retention-days: 14

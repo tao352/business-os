@@ -1,6 +1,10 @@
 import { withTenantContext } from "@business-os/database";
 import type { TenantContext, LeadStatus } from "@business-os/types";
-import { assertPermission, can } from "../permissions/checker.js";
+import {
+  assertPermission,
+  can,
+  assertCanAccessIndividualLeadRecords,
+} from "../permissions/checker.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { recordAuditLog } from "./audit-helper.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
@@ -109,8 +113,11 @@ export async function createLead(
 
 /**
  * Retrieves a single lead, asserting row-level ownership if user is a SALESPERSON.
+ * Rejects MARKETING_USER (restricted to aggregated metrics only).
  */
 export async function getLead(context: TenantContext, leadId: string) {
+  assertCanAccessIndividualLeadRecords(context);
+
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query("SELECT * FROM leads WHERE id = $1", [leadId]);
     if (res.rows.length === 0) {
@@ -125,13 +132,14 @@ export async function getLead(context: TenantContext, leadId: string) {
 }
 
 /**
- * Lists leads with filtering, pagination, and role-based assignment constraints.
+ * Lists individual leads with filtering, pagination, and role-based assignment constraints.
+ * Rejects MARKETING_USER (restricted to aggregated metrics only).
  */
 export async function listLeads(
   context: TenantContext,
   filters: ListLeadsFilters = {},
 ) {
-  assertPermission(context, "read", "lead");
+  assertCanAccessIndividualLeadRecords(context);
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const conditions: string[] = ["1 = 1"];

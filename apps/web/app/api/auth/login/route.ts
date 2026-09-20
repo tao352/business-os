@@ -8,7 +8,9 @@ export async function POST(request: Request) {
   let normalizedEmail = "";
 
   try {
-    // 1. Resolve client IP from reverse proxy headers
+    // 1. Resolve client IP from reverse proxy headers.
+    // SECURITY NOTE: In production deployment, reverse proxies (e.g., Cloudflare, AWS ALB, Nginx)
+    // MUST be configured to overwrite or sanitize X-Forwarded-For to prevent spoofed IP bypasses.
     const forwardedFor = request.headers.get("x-forwarded-for");
     const realIp = request.headers.get("x-real-ip");
     if (forwardedFor) {
@@ -27,8 +29,8 @@ export async function POST(request: Request) {
       typeof password !== "string"
     ) {
       return NextResponse.json(
-        { error: "Email and password are required" },
-        { status: 400 },
+        { error: "Unable to sign in with these credentials." },
+        { status: 401 },
       );
     }
 
@@ -63,13 +65,15 @@ export async function POST(request: Request) {
     // 3. Attempt Authentication
     const result = await authenticateUser(normalizedEmail, password);
 
+    // If user has no active organization membership, do NOT disclose internal membership status
     if (!result.primaryToken) {
+      logger.warn(
+        { userId: result.user.id, email: normalizedEmail },
+        "Login succeeded for user but no active tenant organization membership found",
+      );
       return NextResponse.json(
-        {
-          error:
-            "No active organization membership found for this user. Contact your workspace administrator.",
-        },
-        { status: 403 },
+        { error: "Unable to sign in with these credentials." },
+        { status: 401 },
       );
     }
 
@@ -86,7 +90,7 @@ export async function POST(request: Request) {
       organizations: result.organizations,
     });
   } catch (err: unknown) {
-    // Prevent account state disclosure: log detailed failure reason on server only
+    // Prevent account state enumeration: log exact reason internally, return uniform generic error to client
     logger.warn(
       {
         clientIp,
@@ -97,7 +101,7 @@ export async function POST(request: Request) {
     );
 
     return NextResponse.json(
-      { error: "Invalid email or password" },
+      { error: "Unable to sign in with these credentials." },
       { status: 401 },
     );
   }

@@ -2,12 +2,19 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  pool,
+  migratorPool,
+  runPendingMigrations,
+} from "@business-os/database";
+import {
   registerUser,
   createOrganization,
   createLead,
 } from "../packages/core/src/index.js";
 
 async function main() {
+  await runPendingMigrations();
+
   const uniqueA = crypto.randomBytes(4).toString("hex");
   const uniqueB = crypto.randomBytes(4).toString("hex");
 
@@ -40,6 +47,21 @@ async function main() {
       source: "ORGANIC",
       budget: 500000,
     },
+  );
+
+  // Seed Marketing User in Tenant A (Aggregated-only role)
+  const emailMarketing = `e2e.marketing.${uniqueA}@business-os.test`;
+  const passwordMarketing = "Password123!Secure";
+  const userMarketing = await registerUser({
+    email: emailMarketing,
+    password: passwordMarketing,
+    fullName: "Mona Marketing Specialist",
+  });
+
+  await pool.query(
+    `INSERT INTO organization_memberships (organization_id, user_id, role, is_active)
+     VALUES ($1, $2, 'MARKETING_USER', true)`,
+    [orgA.id, userMarketing.id],
   );
 
   // Seed Tenant B (For Cross-Tenant Isolation Negative Test)
@@ -80,6 +102,13 @@ async function main() {
       password: passwordA,
       fullName: "Alice Enterprise Admin",
     },
+    userMarketing: {
+      id: userMarketing.id,
+      email: emailMarketing,
+      password: passwordMarketing,
+      fullName: "Mona Marketing Specialist",
+      role: "MARKETING_USER",
+    },
     orgA: { id: orgA.id, name: orgA.name, slug: orgA.slug },
     leadA: {
       id: leadA.id,
@@ -110,10 +139,16 @@ async function main() {
   fs.writeFileSync(targetPath, JSON.stringify(fixtureData, null, 2), "utf-8");
 
   console.log("Successfully seeded E2E test fixtures to", targetPath);
+  await pool.end();
+  await migratorPool.end();
   process.exit(0);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("Failed to seed E2E fixtures:", err);
+  try {
+    await pool.end();
+    await migratorPool.end();
+  } catch {}
   process.exit(1);
 });

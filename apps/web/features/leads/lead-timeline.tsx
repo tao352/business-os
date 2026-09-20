@@ -17,7 +17,7 @@ export interface TimelineEvent {
   summary: string;
   details?: any;
   author_name?: string;
-  created_at: string;
+  created_at: string | Date;
 }
 
 interface LeadTimelineProps {

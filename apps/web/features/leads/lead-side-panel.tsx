@@ -7,20 +7,21 @@ import { Check, Clock } from "lucide-react";
 interface LeadSidePanelProps {
   lead: {
     id: string;
-    phone: string;
-    email: string | null;
+    phone?: string | null;
+    email?: string | null;
     status: any;
     source: string;
     assigned_name?: string | null;
     custom_data?: any;
-    created_at: string;
-    updated_at: string;
+    created_at: string | Date;
+    updated_at: string | Date;
+    contact_info_redacted?: boolean;
   };
   tasks: Array<{
     id: string;
     title: string;
-    due_date: string;
-    priority: string;
+    due_date: string | Date;
+    priority?: string;
     is_completed: boolean;
   }>;
 }

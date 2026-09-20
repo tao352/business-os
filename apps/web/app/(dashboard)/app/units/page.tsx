@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { listUnitsInventory } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
@@ -19,10 +20,17 @@ export default async function UnitsPage({ searchParams }: UnitsPageProps) {
   const pageSize = 25;
 
   // Fetch paginated inventory with truthful total count via core read-model service
-  const { units, totalCount } = await listUnitsInventory(context, {
-    page: currentPage,
-    pageSize,
-  });
+  let inventory: Awaited<ReturnType<typeof listUnitsInventory>>;
+  try {
+    inventory = await listUnitsInventory(context, {
+      page: currentPage,
+      pageSize,
+    });
+  } catch {
+    notFound();
+  }
+
+  const { units, totalCount } = inventory;
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
   const fromRecord = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;

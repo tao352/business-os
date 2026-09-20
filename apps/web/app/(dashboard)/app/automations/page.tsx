@@ -1,4 +1,5 @@
 import React from "react";
+import { notFound } from "next/navigation";
 import { listAutomationRules } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
@@ -8,8 +9,12 @@ import { formatDate } from "@/lib/formatters";
 export default async function AutomationsPage() {
   const context = await requireTenantContext();
 
-  // Fetch automation rules via core read-model service (using real automation_rules schema)
-  const rules = await listAutomationRules(context);
+  let rules: Awaited<ReturnType<typeof listAutomationRules>>;
+  try {
+    rules = await listAutomationRules(context);
+  } catch {
+    notFound();
+  }
 
   return (
     <div className="space-y-6">

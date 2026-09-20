@@ -1,15 +1,21 @@
 import React from "react";
+import { notFound } from "next/navigation";
 import { getIntegrationStatus } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, Share2 } from "lucide-react";
-import { formatDate } from "@/lib/formatters";
 
 export default async function IntegrationsPage() {
   const context = await requireTenantContext();
 
-  // Fetch verified integration status via core read-model service
-  const integrations = await getIntegrationStatus(context);
+  // Fetch verified integration status via core read-model service (asserts org read permission)
+  let integrations: Awaited<ReturnType<typeof getIntegrationStatus>>;
+  try {
+    integrations = await getIntegrationStatus(context);
+  } catch {
+    notFound();
+  }
+
   const { meta, whatsapp } = integrations;
 
   return (

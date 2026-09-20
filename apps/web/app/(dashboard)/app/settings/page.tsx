@@ -1,4 +1,5 @@
 import React from "react";
+import { notFound } from "next/navigation";
 import { getOrganizationSettings } from "@business-os/core";
 import { requireTenantContext, getSessionUser } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
@@ -8,8 +9,15 @@ export default async function SettingsPage() {
   const context = await requireTenantContext();
   const session = await getSessionUser();
 
-  // Fetch organization settings & members via core read-model service
-  const { organization: org, members } = await getOrganizationSettings(context);
+  // Fetch organization settings & members via core read-model service (asserts org read permission)
+  let settings: Awaited<ReturnType<typeof getOrganizationSettings>>;
+  try {
+    settings = await getOrganizationSettings(context);
+  } catch {
+    notFound();
+  }
+
+  const { organization: org, members } = settings;
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -72,7 +80,7 @@ export default async function SettingsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line-subtle">
-              {members.map((m: any) => (
+              {members.map((m) => (
                 <tr
                   key={m.id}
                   className="hover:bg-surface-subtle transition-colors h-12"

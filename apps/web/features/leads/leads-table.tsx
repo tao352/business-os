@@ -24,6 +24,7 @@ interface LeadsTableProps {
   totalCount: number;
   currentPage: number;
   pageSize: number;
+  individualRecordsRestricted?: boolean;
 }
 
 export function LeadsTable({
@@ -31,6 +32,7 @@ export function LeadsTable({
   totalCount,
   currentPage,
   pageSize,
+  individualRecordsRestricted,
 }: LeadsTableProps) {
   const router = useRouter();
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -40,6 +42,21 @@ export function LeadsTable({
     url.searchParams.set("page", page.toString());
     router.push(url.toString());
   };
+
+  if (individualRecordsRestricted) {
+    return (
+      <div className="bg-surface border border-line rounded-xl p-12 text-center space-y-2">
+        <p className="text-sm font-semibold text-ink">
+          Individual Customer Records Restricted
+        </p>
+        <p className="text-xs text-ink-muted max-w-md mx-auto">
+          Your role is restricted to aggregated campaign and pipeline metrics.
+          Individual customer dossiers, contact details, and activity timelines
+          cannot be viewed.
+        </p>
+      </div>
+    );
+  }
 
   if (leads.length === 0) {
     return (

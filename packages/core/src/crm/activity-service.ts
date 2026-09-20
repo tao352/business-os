@@ -1,6 +1,10 @@
 import { withTenantContext } from "@business-os/database";
 import type { TenantContext } from "@business-os/types";
-import { assertPermission } from "../permissions/checker.js";
+import {
+  assertPermission,
+  assertCanAccessIndividualLeadRecords,
+} from "../permissions/checker.js";
+import { getLead } from "./lead-service.js";
 
 export type ActivityType =
   "CALL" | "WHATSAPP" | "EMAIL" | "MEETING" | "NOTE" | "STATUS_CHANGE";
@@ -50,12 +54,18 @@ export async function logActivity(
 
 /**
  * Retrieves the complete chronological activity timeline for a lead.
+ * Asserts individual lead access permission (rejects MARKETING_USER) and
+ * verifies row-level lead assignment for SALESPERSON.
  */
 export async function listLeadActivities(
   context: TenantContext,
   leadId: string,
 ) {
-  assertPermission(context, "read", "lead");
+  assertCanAccessIndividualLeadRecords(context);
+  // Asserts lead exists, belongs to tenant, and is assigned to caller if SALESPERSON
+  if (context.role === "SALESPERSON") {
+    await getLead(context, leadId);
+  }
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
