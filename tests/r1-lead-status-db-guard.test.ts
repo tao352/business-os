@@ -35,20 +35,18 @@ describe("R1 Lead status database guard", () => {
 
     await expect(
       withTenantContext(context.organizationId, async (tx) => {
-        await tx.query(
-          "UPDATE leads SET status = 'ESCALATED' WHERE id = $1",
-          [lead.id],
-        );
+        await tx.query("UPDATE leads SET status = 'ESCALATED' WHERE id = $1", [
+          lead.id,
+        ]);
       }),
     ).rejects.toThrow();
 
     const persistedStatus = await withTenantContext(
       context.organizationId,
       async (tx) => {
-        const res = await tx.query(
-          "SELECT status FROM leads WHERE id = $1",
-          [lead.id],
-        );
+        const res = await tx.query("SELECT status FROM leads WHERE id = $1", [
+          lead.id,
+        ]);
         return res.rows[0]?.status;
       },
     );
