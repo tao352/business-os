@@ -54,6 +54,23 @@ CREATE TABLE IF NOT EXISTS public.lead_stage_history (
   reason_code VARCHAR(50),
   reason_notes TEXT,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  CONSTRAINT chk_lead_stage_history_reason_code
+    CHECK (
+      reason_code IS NULL OR reason_code IN (
+        'PRICE',
+        'FINANCING',
+        'UNIT_NOT_AVAILABLE',
+        'LOCATION',
+        'TIMING',
+        'COMPETITOR',
+        'NO_RESPONSE',
+        'NOT_QUALIFIED',
+        'DUPLICATE',
+        'OTHER',
+        'UNSPECIFIED'
+      )
+    ),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT uq_lead_stage_history_org_id UNIQUE (organization_id, id),

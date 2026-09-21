@@ -11,6 +11,7 @@ import {
   listLeadStageHistory,
   createTask,
   listLeadFollowUpHealth,
+  logActivity,
   ForbiddenError,
 } from "../packages/core/src/index.js";
 
@@ -155,6 +156,31 @@ describe("Phase 23A Sales Execution & Anti-Lead-Leakage", () => {
     expect(overdue?.health).toBe("OVERDUE_NEXT_ACTION");
     expect(overdue?.nextActionId).toBe(overdueTask.id);
     expect(overdue?.nextActionTitle).toBe("Call overdue lead");
+  });
+
+  it("keeps internal notes from faking customer contact", async () => {
+    const lead = await createLead(ownerContext, {
+      fullName: "Contact Timestamp Lead",
+      phone: "+201000000006",
+      assignedUserId: salesAUserId,
+      status: "NEW",
+    });
+
+    await logActivity(salesAContext, {
+      leadId: lead.id,
+      activityType: "NOTE",
+      summary: "Internal note only",
+    });
+    const afterNote = await getLead(salesAContext, lead.id);
+    expect(afterNote.last_contacted_at).toBeNull();
+
+    await logActivity(salesAContext, {
+      leadId: lead.id,
+      activityType: "CALL",
+      summary: "Customer contacted by phone",
+    });
+    const afterCall = await getLead(salesAContext, lead.id);
+    expect(afterCall.last_contacted_at).toBeTruthy();
   });
 
   it("enforces salesperson scope for health and stage history", async () => {
