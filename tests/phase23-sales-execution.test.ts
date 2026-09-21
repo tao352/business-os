@@ -179,9 +179,9 @@ describe("Phase 23A Sales Execution & Anti-Lead-Leakage", () => {
       updateLeadStatus(salesAContext, leadB.id, "CONTACTED"),
     ).rejects.toThrow(ForbiddenError);
 
-    await expect(
-      listLeadStageHistory(salesAContext, leadB.id),
-    ).rejects.toThrow(ForbiddenError);
+    await expect(listLeadStageHistory(salesAContext, leadB.id)).rejects.toThrow(
+      ForbiddenError,
+    );
 
     const salesBLead = await getLead(salesBContext, leadB.id);
     expect(salesBLead.status).toBe("NEW");

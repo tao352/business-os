@@ -72,9 +72,7 @@ export function ChangeStatusDialog({
       leadId,
       selectedStatus,
       isClosing && lostReasonCode ? lostReasonCode : undefined,
-      isClosing && lostReasonNotes.trim()
-        ? lostReasonNotes.trim()
-        : undefined,
+      isClosing && lostReasonNotes.trim() ? lostReasonNotes.trim() : undefined,
     );
     setIsSubmitting(false);
 

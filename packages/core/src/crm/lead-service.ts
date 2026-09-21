@@ -307,7 +307,7 @@ export async function updateLeadStatus(
 
     const isClosing = newStatus === "LOST" || newStatus === "UNQUALIFIED";
     const reasonCode: LeadClosureReason | null = isClosing
-      ? options.lostReasonCode ?? "UNSPECIFIED"
+      ? (options.lostReasonCode ?? "UNSPECIFIED")
       : null;
     const reasonNotes = isClosing
       ? options.lostReasonNotes?.trim() || null

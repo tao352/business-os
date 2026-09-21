@@ -6,10 +6,7 @@ import {
 } from "../permissions/checker.js";
 
 export type LeadFollowUpHealthState =
-  | "HEALTHY"
-  | "NO_NEXT_ACTION"
-  | "OVERDUE_NEXT_ACTION"
-  | "STALE_CONTACT";
+  "HEALTHY" | "NO_NEXT_ACTION" | "OVERDUE_NEXT_ACTION" | "STALE_CONTACT";
 
 export interface LeadFollowUpHealthRow {
   leadId: string;
