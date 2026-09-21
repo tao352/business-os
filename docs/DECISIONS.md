@@ -369,24 +369,34 @@
      - **Protection B (Scheduled Sweeper):** Periodic, idempotent sweeper releasing expired reservations (`expireStaleReservations` and `sweepExpiredReservations`).
      - Concurrency protection via `SELECT ... FOR UPDATE` + partial unique index `WHERE status IN ('CONFIRMED', 'PENDING')`.
 - **Decision:**
-  1. **Schema Evolution (Migration 0019):**
-     - Updated `projects` table with `project_type`, `construction_status`, `sales_status`, and `is_active`.
-     - Updated `units` table with `usage_type`, `unit_type`, `model_name`, `floor`, and `is_active`.
-     - Created `lead_property_interests` table with composite tenant foreign keys, CHECK constraints, and partial unique index `idx_lead_primary_active_interest`.
-     - Implemented partial unique index `idx_active_unit_reservation` on `reservations (organization_id, unit_id) WHERE status IN ('CONFIRMED', 'PENDING')`.
-     - Enforced least-privilege DDL restrictions on public schema (`REVOKE CREATE ON SCHEMA public FROM PUBLIC, app_user`).
-  2. **Core Domain Services & Types (`packages/types`, `packages/core`):**
+  1. **Schema Evolution (Migrations 0019 & 0020):**
+     - Migration 0019 (`0019_h0_public_schema_create_revoke.sql`): Strict least-privilege DDL restrictions on public schema (`REVOKE CREATE ON SCHEMA public FROM PUBLIC, app_user`).
+     - Migration 0020 (`0020_phase22_real_estate_domain_and_interest.sql`):
+       - Updated `projects` table with `project_type`, `construction_status`, `sales_status`, and `is_active`.
+       - Updated `units` table with `usage_type`, `unit_type`, `model_name`, `floor`, and `is_active`.
+       - Created `lead_property_interests` table with composite tenant foreign keys, range CHECK constraints, and partial unique index `idx_lead_primary_active_interest`.
+       - Implemented partial unique index `idx_active_unit_reservation` on `reservations (organization_id, unit_id) WHERE status IN ('CONFIRMED', 'PENDING')`.
+  2. **Core Domain Services & Authorization Hardening (`packages/types`, `packages/core`):**
      - Defined `ConstructionStatusSchema`, `SalesStatusSchema`, `UnitUsageTypeSchema`, `UnitTypeSchema`, and `LeadPropertyInterestSchema`.
-     - Implemented `lead-property-interest-service.ts` with `addLeadInterest`, `listLeadInterests`, `updateLeadInterest`, and `getLeadInterest`.
-     - Hardened `payment-plan-service.ts` with integer piastres and month-end date clamping.
-     - Implemented `expireStaleReservations` and `sweepExpiredReservations` in `reservation-service.ts` and `time-based-scanner.ts`.
+     - Enforced strict Lead row-level ownership in `lead-property-interest-service.ts`: SALESPERSON can only access and mutate interests for leads assigned to them; MARKETING_USER is strictly aggregate-only (forbidden from individual interests).
+     - Enforced domain consistency in `addLeadInterest` and `updateLeadInterest`: specific unit must belong to tenant and to the specified project.
+     - Preserved `projects.total_units` as authoritative declared capacity without dynamic increments in `createUnit()`.
+     - Enforced `downPaymentPercent + deliveryPaymentPercent < 100` and strictly positive installments in `payment-plan-service.ts`, with full support for `SEMI_ANNUAL`, `ANNUAL`, leap-year Feb 29 transitions, and month-end clamping.
+     - Hardened `reservation-service.ts`:
+       - Checked individual lead ownership before reserving inventory.
+       - Enforced uniform lock order (`units` first, `reservations` second) across `createReservation` and `expireStaleReservations` to prevent deadlocks.
+       - Hardened JIT expiration so units marked `CONTRACTED` or `BLOCKED` are never reopened to `AVAILABLE` by stale reservations.
   3. **Deterministic Lead Matching Engine (`read-models.ts`):**
-     - Updated `getLeadMatchedUnits(context, leadId)` to match available inventory against all active 1:N property interests.
-  4. **Tactile Taste-Skill Frontend Implementation (`apps/web`):**
+     - Enforced row-level lead ownership in `getLeadMatchedUnits(context, leadId)`.
+     - Ranked inventory strictly on property matching rules with deterministic tie-breaking (no customer-value scoring).
+  4. **Prohibition of Fabricated Pilot Facts (`packages/core/src/pilot/seed-data.ts`):**
+     - Replaced all invented pilot metadata with strictly synthetic fixtures (`Test Project Alpha`, `Test Residential Project Beta`, `Test Unit A-101`, synthetic customer identities).
+  5. **Tactile Taste-Skill Frontend Implementation (`apps/web`):**
      - **Projects Portfolio (`/app/projects`):** Decoupled construction and sales status badges, active indicators, and `CreateProjectDialog`.
      - **Property Inventory (`/app/units`):** Development, usage type, unit type, and status filter toolbar, `CreateUnitDialog`, and `PaymentPlanModal`.
      - **Lead Detail Workspace (`/app/leads/[id]`):** 1:N `LeadInterestCard` wishlist with primary badges, add interest dialog, and matched units with instant reservation and payment plan modals.
-  5. **Automated Verification:**
-     - 34 test files (338 tests) passing with 100% green CI.
-     - Clean TypeScript typecheck (`tsc --noEmit`), clean Next.js build, and Prettier formatted.
-- **Rationale:** Delivers complete, production-hardened real estate inventory, wishlist matching, and financial lifecycle capabilities while maintaining absolute multi-tenant isolation and strict architectural discipline.
+  6. **Automated Verification:**
+     - 34 test files (345 tests) passing 100%.
+     - Playwright browser E2E (9 passed, 1 skipped) and Visual QA (1 passed) passing 100%.
+     - Strict TypeScript typecheck (`tsc --noEmit`), Next.js production build, and Prettier clean.
+- **Rationale:** Delivers complete, production-hardened real estate inventory, wishlist matching, and financial lifecycle capabilities while maintaining absolute multi-tenant isolation, authorization safety, and strict architectural discipline.

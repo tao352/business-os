@@ -76,7 +76,7 @@ export function CreateProjectDialog({
             <Input
               name="name"
               required
-              placeholder="e.g. Ten Point Mall / حي الصفوة"
+              placeholder="e.g. Commercial Complex Alpha / Downtown Heights"
               disabled={isLoading}
             />
           </div>

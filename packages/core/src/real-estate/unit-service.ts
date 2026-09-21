@@ -119,13 +119,7 @@ export async function createUnit(
       throw new Error("Failed to create unit");
     }
 
-    // 3. Increment project total_units count
-    await client.query(
-      `UPDATE projects SET total_units = total_units + 1, updated_at = NOW() WHERE id = $1`,
-      [input.projectId],
-    );
-
-    // 4. Audit Log
+    // 3. Audit Log
     await recordAuditLog(client, context, {
       action: "CREATE",
       entityType: "unit",

@@ -197,16 +197,26 @@ export const InstallmentSchema = z.object({
 
 export type Installment = z.infer<typeof InstallmentSchema>;
 
-export const PaymentPlanInputSchema = z.object({
-  totalPrice: z.number().positive(),
-  downPaymentPercent: z.number().min(0).max(100),
-  installmentsYears: z.number().min(0.5).max(30),
-  frequency: PaymentFrequencySchema,
-  deliveryPaymentPercent: z.number().min(0).max(100).default(0).optional(),
-  deliveryDate: z.string().optional(),
-  startDate: z.string(), // YYYY-MM-DD
-  maintenancePercent: z.number().min(0).max(50).default(0).optional(),
-});
+export const PaymentPlanInputSchema = z
+  .object({
+    totalPrice: z.number().positive(),
+    downPaymentPercent: z.number().min(0).max(100),
+    installmentsYears: z.number().min(0.5).max(30),
+    frequency: PaymentFrequencySchema,
+    deliveryPaymentPercent: z.number().min(0).max(100).default(0).optional(),
+    deliveryDate: z.string().optional(),
+    startDate: z.string(), // YYYY-MM-DD
+    maintenancePercent: z.number().min(0).max(50).default(0).optional(),
+  })
+  .refine(
+    (data) =>
+      data.downPaymentPercent + (data.deliveryPaymentPercent ?? 0) < 100,
+    {
+      message:
+        "Combined down payment and delivery payment percentages must be strictly less than 100%",
+      path: ["downPaymentPercent"],
+    },
+  );
 
 export type PaymentPlanInput = z.infer<typeof PaymentPlanInputSchema>;
 

@@ -7,7 +7,10 @@ import {
   type UnitUsageType,
   type UnitType,
 } from "@business-os/types";
-import { assertPermission } from "../permissions/checker.js";
+import {
+  assertPermission,
+  assertCanAccessIndividualLeadRecords,
+} from "../permissions/checker.js";
 import { recordAuditLog } from "./audit-helper.js";
 
 export interface CreateLeadInterestInput {
@@ -45,12 +48,14 @@ export async function addLeadInterest(
   context: TenantContext,
   input: CreateLeadInterestInput,
 ): Promise<LeadPropertyInterest> {
-  assertPermission(context, "create", "lead");
-
   return await withTenantContext(context.organizationId, async (client) => {
-    // 1. Verify lead exists and belongs to this organization
-    const leadRes = await client.query<{ id: string; full_name: string }>(
-      `SELECT id, full_name FROM leads WHERE organization_id = $1 AND id = $2`,
+    // 1. Verify lead exists, belongs to tenant, and caller is authorized
+    const leadRes = await client.query<{
+      id: string;
+      assigned_user_id: string | null;
+      full_name: string;
+    }>(
+      `SELECT id, assigned_user_id, full_name FROM leads WHERE organization_id = $1 AND id = $2`,
       [context.organizationId, input.leadId],
     );
     const lead = leadRes.rows[0];
@@ -58,10 +63,35 @@ export async function addLeadInterest(
       throw new Error(`Lead '${input.leadId}' not found`);
     }
 
+    assertCanAccessIndividualLeadRecords(context, lead);
+    assertPermission(context, "update", "lead", lead);
+
+    // 2. Domain Consistency: If specific unit is supplied, verify tenant & project ownership
+    if (input.specificUnitId) {
+      const unitRes = await client.query<{
+        id: string;
+        project_id: string;
+      }>(
+        `SELECT id, project_id FROM units WHERE organization_id = $1 AND id = $2`,
+        [context.organizationId, input.specificUnitId],
+      );
+      const unit = unitRes.rows[0];
+      if (!unit) {
+        throw new Error(
+          `Specific unit '${input.specificUnitId}' not found in organization`,
+        );
+      }
+      if (input.projectId && unit.project_id !== input.projectId) {
+        throw new Error(
+          `Specific unit '${input.specificUnitId}' does not belong to project '${input.projectId}'`,
+        );
+      }
+    }
+
     const isPrimary = input.isPrimary ?? true;
     const status = input.status ?? "ACTIVE";
 
-    // 2. If new interest is primary and active, demote existing primary active interests
+    // 3. If new interest is primary and active, demote existing primary active interests
     if (isPrimary && status === "ACTIVE") {
       await client.query(
         `UPDATE lead_property_interests
@@ -71,7 +101,7 @@ export async function addLeadInterest(
       );
     }
 
-    // 3. Insert new interest record
+    // 4. Insert new interest record
     const insertSql = `
       INSERT INTO lead_property_interests (
         organization_id,
@@ -122,7 +152,7 @@ export async function addLeadInterest(
       throw new Error("Failed to create lead property interest");
     }
 
-    // 4. Append note to lead activity timeline
+    // 5. Append note to lead activity timeline
     await client.query(
       `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
        VALUES ($1, $2, $3, 'NOTE', $4, $5)`,
@@ -135,7 +165,7 @@ export async function addLeadInterest(
       ],
     );
 
-    // 5. Audit Log
+    // 6. Audit Log
     await recordAuditLog(client, context, {
       action: "CREATE",
       entityType: "lead",
@@ -162,6 +192,22 @@ export async function listLeadInterests(
   statusFilter?: LeadPropertyInterestStatus,
 ): Promise<LeadPropertyInterest[]> {
   return await withTenantContext(context.organizationId, async (client) => {
+    // 1. Authorize access to this individual lead record
+    const leadRes = await client.query<{
+      id: string;
+      assigned_user_id: string | null;
+    }>(
+      `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
+      [context.organizationId, leadId],
+    );
+    const lead = leadRes.rows[0];
+    if (!lead) {
+      throw new Error(`Lead '${leadId}' not found`);
+    }
+
+    assertCanAccessIndividualLeadRecords(context, lead);
+    assertPermission(context, "read", "lead", lead);
+
     const params: unknown[] = [context.organizationId, leadId];
     let statusSql = "";
     if (statusFilter) {
@@ -191,7 +237,28 @@ export async function getLeadInterest(
       [context.organizationId, interestId],
     );
 
-    return res.rows[0] ?? null;
+    const interest = res.rows[0];
+    if (!interest) {
+      return null;
+    }
+
+    // Authorize through the associated lead
+    const leadRes = await client.query<{
+      id: string;
+      assigned_user_id: string | null;
+    }>(
+      `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
+      [context.organizationId, interest.lead_id],
+    );
+    const lead = leadRes.rows[0];
+    if (!lead) {
+      return null;
+    }
+
+    assertCanAccessIndividualLeadRecords(context, lead);
+    assertPermission(context, "read", "lead", lead);
+
+    return interest;
   });
 }
 
@@ -200,8 +267,6 @@ export async function updateLeadInterest(
   interestId: string,
   input: UpdateLeadInterestInput,
 ): Promise<LeadPropertyInterest> {
-  assertPermission(context, "update", "lead");
-
   return await withTenantContext(context.organizationId, async (client) => {
     const existingRes = await client.query<LeadPropertyInterest>(
       `SELECT * FROM lead_property_interests
@@ -211,6 +276,51 @@ export async function updateLeadInterest(
     const existing = existingRes.rows[0];
     if (!existing) {
       throw new Error(`Lead property interest '${interestId}' not found`);
+    }
+
+    // 1. Authorize mutation through the associated lead
+    const leadRes = await client.query<{
+      id: string;
+      assigned_user_id: string | null;
+    }>(
+      `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
+      [context.organizationId, existing.lead_id],
+    );
+    const lead = leadRes.rows[0];
+    if (!lead) {
+      throw new Error(`Lead '${existing.lead_id}' not found`);
+    }
+
+    assertCanAccessIndividualLeadRecords(context, lead);
+    assertPermission(context, "update", "lead", lead);
+
+    // 2. Domain Consistency: If specific unit is updated or retained with project update
+    const effectiveUnitId =
+      input.specificUnitId !== undefined
+        ? input.specificUnitId
+        : existing.specific_unit_id;
+    const effectiveProjectId =
+      input.projectId !== undefined ? input.projectId : existing.project_id;
+
+    if (effectiveUnitId) {
+      const unitRes = await client.query<{
+        id: string;
+        project_id: string;
+      }>(
+        `SELECT id, project_id FROM units WHERE organization_id = $1 AND id = $2`,
+        [context.organizationId, effectiveUnitId],
+      );
+      const unit = unitRes.rows[0];
+      if (!unit) {
+        throw new Error(
+          `Specific unit '${effectiveUnitId}' not found in organization`,
+        );
+      }
+      if (effectiveProjectId && unit.project_id !== effectiveProjectId) {
+        throw new Error(
+          `Specific unit '${effectiveUnitId}' does not belong to project '${effectiveProjectId}'`,
+        );
+      }
     }
 
     const nextStatus = input.status ?? existing.status;

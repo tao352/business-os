@@ -571,22 +571,30 @@ export async function getLeadMatchedUnits(
   assertCanAccessIndividualLeadRecords(context);
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    // 1. Fetch Lead existence
-    const leadRes = await tx.query(`SELECT id FROM leads WHERE id = $1`, [
-      leadId,
-    ]);
-    if (leadRes.rows.length === 0) {
+    // 1. Fetch Lead and enforce row-level ownership
+    const leadRes = await tx.query<{
+      id: string;
+      assigned_user_id: string | null;
+    }>(
+      `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
+      [context.organizationId, leadId],
+    );
+    const lead = leadRes.rows[0];
+    if (!lead) {
       throw new Error(`Lead '${leadId}' not found`);
     }
+
+    assertCanAccessIndividualLeadRecords(context, lead);
+    assertPermission(context, "read", "lead", lead);
 
     // 2. Fetch Active Property Interests for this Lead
     const interestsRes = await tx.query(
       `
       SELECT * FROM lead_property_interests
-      WHERE lead_id = $1 AND status = 'ACTIVE'
+      WHERE organization_id = $1 AND lead_id = $2 AND status = 'ACTIVE'
       ORDER BY is_primary DESC, created_at DESC
     `,
-      [leadId],
+      [context.organizationId, leadId],
     );
 
     const activeInterests = interestsRes.rows;
@@ -595,14 +603,17 @@ export async function getLeadMatchedUnits(
     }
 
     // 3. Fetch Available Units with Project metadata
-    const unitsRes = await tx.query(`
+    const unitsRes = await tx.query(
+      `
       SELECT u.id, u.unit_number, u.usage_type, u.unit_type, u.model_name, u.floor, u.gross_area,
              u.price, u.currency, u.status, u.is_active, u.project_id, p.name as project_name
       FROM units u
       JOIN projects p ON p.id = u.project_id
-      WHERE u.status = 'AVAILABLE' AND u.is_active = true
+      WHERE u.organization_id = $1 AND u.status = 'AVAILABLE' AND u.is_active = true
       ORDER BY u.unit_number ASC
-    `);
+    `,
+      [context.organizationId],
+    );
 
     const availableUnits = unitsRes.rows;
     const matchedUnits: MatchedUnitItem[] = [];
@@ -746,7 +757,11 @@ export async function getLeadMatchedUnits(
     }
 
     matchedUnits.sort(
-      (a, b) => b.matchScore - a.matchScore || a.price - b.price,
+      (a, b) =>
+        b.matchScore - a.matchScore ||
+        a.price - b.price ||
+        a.unit_number.localeCompare(b.unit_number) ||
+        a.id.localeCompare(b.id),
     );
     return matchedUnits;
   });

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- MIGRATION 0019: PHASE 22 — REAL ESTATE CORE DOMAIN, INVENTORY & 1:N INTERESTS
+-- MIGRATION 0020: PHASE 22 — REAL ESTATE CORE DOMAIN, INVENTORY & 1:N INTERESTS
 -- ==============================================================================
 
 -- 1. Projects Domain Expansion (Decoupled Construction & Sales Lifecycles)
@@ -101,7 +101,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_active_unit_reservation
 CREATE INDEX IF NOT EXISTS idx_reservations_expiration_sweep
   ON public.reservations (organization_id, status, expires_at)
   WHERE status IN ('CONFIRMED', 'PENDING');
-
--- 5. Strict Least-Privilege DDL Restriction on Public Schema
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-REVOKE CREATE ON SCHEMA public FROM app_user;

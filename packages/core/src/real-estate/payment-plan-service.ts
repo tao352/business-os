@@ -82,11 +82,22 @@ export function generatePaymentSchedule(
     (totalPiastres * input.downPaymentPercent) / 100,
   );
   const deliveryPercent = input.deliveryPaymentPercent ?? 0;
+  if (input.downPaymentPercent + deliveryPercent >= 100) {
+    throw new Error(
+      "Combined down payment and delivery payment percentages must be strictly less than 100%",
+    );
+  }
   const deliveryPiastres = Math.round((totalPiastres * deliveryPercent) / 100);
 
   // Principal balance remaining for periodic installments
   const remainingInstallmentsPiastres =
     totalPiastres - downPaymentPiastres - deliveryPiastres;
+
+  if (remainingInstallmentsPiastres <= 0) {
+    throw new Error(
+      "Remaining balance for installments must be strictly greater than zero",
+    );
+  }
 
   const freqMonths = getFrequencyMonths(input.frequency);
   const installmentsPerYear = 12 / freqMonths;
@@ -102,6 +113,11 @@ export function generatePaymentSchedule(
   const baseInstallmentPiastres = Math.floor(
     remainingInstallmentsPiastres / installmentsCount,
   );
+
+  if (baseInstallmentPiastres <= 0) {
+    throw new Error("Installment amount must be greater than zero");
+  }
+
   const remainderPiastres =
     remainingInstallmentsPiastres - baseInstallmentPiastres * installmentsCount;
 

@@ -94,56 +94,56 @@ describe("Phase 19: Pilot Customer Onboarding & End-to-End Validation", () => {
       seededData = await seedPilotRealEstateData(pilotContext);
 
       expect(seededData.projects).toHaveLength(2);
-      expect(seededData.projects[0]?.name).toContain("حي الصفوة");
-      expect(seededData.projects[1]?.name).toContain("تن بوينت");
+      expect(seededData.projects[0]?.name).toContain("Project Beta");
+      expect(seededData.projects[1]?.name).toContain("Complex Gamma");
 
       expect(seededData.units).toHaveLength(3);
-      expect(Number(seededData.units[0]?.price)).toBe(18500000); // 18.5M EGP Villa
+      expect(Number(seededData.units[0]?.price)).toBe(4500000); // 4.5M EGP Apartment
 
       expect(seededData.leads).toHaveLength(3);
       expect(seededData.rules).toHaveLength(1);
 
       // Verify payment plan schedule breakdown
       const schedule = seededData.paymentPlanSample as any;
-      expect(schedule.totalPrice).toBe(18500000);
-      expect(schedule.downPaymentAmount).toBe(1850000); // 10%
-      expect(schedule.installmentsCount).toBe(32); // 8 years * 4 quarters
+      expect(schedule.totalPrice).toBe(4500000);
+      expect(schedule.downPaymentAmount).toBe(450000); // 10%
+      expect(schedule.installmentsCount).toBe(20); // 5 years * 4 quarters
     });
 
     it("should simulate the complete commercial real estate sales lifecycle", async () => {
-      const villa = seededData.units[0]!;
+      const apartment = seededData.units[0]!;
       const lead = seededData.leads[0] as any;
 
       // Step A: Reserve Unit
       const expiresAt = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
       const reservation = await createReservation(pilotContext, {
-        unitId: villa.id,
+        unitId: apartment.id,
         leadId: lead.id,
-        depositAmount: 500000,
+        depositAmount: 100000,
         expiresAt,
-        notes: "حجز مبدئي لفيلا حي الصفوة مع سداد جدية حجز",
+        notes: "Initial reservation with down payment deposit",
       });
 
       expect(reservation.id).toBeDefined();
       expect(reservation.status).toBe("CONFIRMED");
 
       // Verify unit status is now RESERVED
-      const updatedUnit = await getUnit(pilotContext, villa.id);
+      const updatedUnit = await getUnit(pilotContext, apartment.id);
       expect(updatedUnit?.status).toBe("RESERVED");
 
       // Step B: Contract Signing & Deal Closing
       const contract = await createContract(pilotContext, {
         reservationId: reservation.id,
-        unitId: villa.id,
+        unitId: apartment.id,
         leadId: lead.id,
-        contractNumber: `CTR-SAFWA-${uniqueSuffix.toUpperCase()}`,
-        contractValue: Number(villa.price),
+        contractNumber: `CTR-SYNTHETIC-${uniqueSuffix.toUpperCase()}`,
+        contractValue: Number(apartment.price),
         signedAt: new Date().toISOString(),
         status: "SIGNED",
       });
 
       expect(contract.id).toBeDefined();
-      expect(Number(contract.contract_value)).toBe(18500000);
+      expect(Number(contract.contract_value)).toBe(4500000);
 
       // Step C: Verify Attribution for closed deal
       const attribution = await calculateCampaignAttribution(
@@ -167,15 +167,15 @@ describe("Phase 19: Pilot Customer Onboarding & End-to-End Validation", () => {
   describe("3. Zero-Leak Multi-Tenant Verification", () => {
     it("should strictly isolate pilot real estate data from competitor organizations", async () => {
       const orgBProjects = await listProjects(orgBContext);
-      const leakedSafwa = orgBProjects.find((p) =>
-        p.name.includes("حي الصفوة"),
+      const leakedBeta = orgBProjects.find((p) =>
+        p.name.includes("Project Beta"),
       );
-      const leakedTenPoint = orgBProjects.find((p) =>
-        p.name.includes("تن بوينت"),
+      const leakedGamma = orgBProjects.find((p) =>
+        p.name.includes("Complex Gamma"),
       );
 
-      expect(leakedSafwa).toBeUndefined();
-      expect(leakedTenPoint).toBeUndefined();
+      expect(leakedBeta).toBeUndefined();
+      expect(leakedGamma).toBeUndefined();
 
       const orgBDashboard = await getExecutiveDashboard(orgBContext);
       expect(orgBDashboard.totalContracts).toBe(0);
