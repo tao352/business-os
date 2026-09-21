@@ -137,10 +137,7 @@ export function ChangeStatusDialog({
                 value={lostReasonCode}
                 onChange={(e) => {
                   setLostReasonCode(
-                    e.target.value as Exclude<
-                      LeadClosureReason,
-                      "UNSPECIFIED"
-                    >,
+                    e.target.value as Exclude<LeadClosureReason, "UNSPECIFIED">,
                   );
                   setError(null);
                 }}
@@ -190,8 +187,7 @@ export function ChangeStatusDialog({
             variant="primary"
             isLoading={isSubmitting}
             disabled={
-              selectedStatus === currentStatus ||
-              (isClosing && !lostReasonCode)
+              selectedStatus === currentStatus || (isClosing && !lostReasonCode)
             }
           >
             Apply Status
