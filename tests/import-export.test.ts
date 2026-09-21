@@ -11,6 +11,7 @@ import {
   registerUser,
   createOrganization,
   listLeads,
+  listLeadStageHistory,
   listUnits,
   getProject,
 } from "../packages/core/src/index.js";
@@ -194,6 +195,35 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       expect(dryRun.sampleValidRows[0]?.["full_name"]).toBe("عمر الشريف");
     });
 
+    it("should reject an invalid imported Lead status during dry-run and execution", async () => {
+      const invalidStatusCsv =
+        `Full Name,Phone,Status\n` +
+        `Bad Status Lead,01012349876,NOT_A_REAL_STATUS`;
+
+      const dryRun = await validateAndDryRunImport(
+        orgAContext,
+        "leads",
+        invalidStatusCsv,
+      );
+
+      expect(dryRun.validRowsCount).toBe(0);
+      expect(dryRun.errorRowsCount).toBe(1);
+      expect(dryRun.errors[0]?.field).toBe("status");
+
+      const execution = await executeImport(
+        orgAContext,
+        "leads",
+        invalidStatusCsv,
+      );
+      expect(execution.importedCount).toBe(0);
+      expect(execution.failedCount).toBe(1);
+
+      const leads = await listLeads(orgAContext, {
+        search: "01012349876",
+      });
+      expect(leads).toHaveLength(0);
+    });
+
     it("should batch import leads and handle duplicate strategies (SKIP vs UPDATE)", async () => {
       const batchCsv =
         `Full Name,Phone,Email,budget\n` +
@@ -204,6 +234,20 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       const exec1 = await executeImport(orgAContext, "leads", batchCsv);
       expect(exec1.importedCount).toBe(2);
       expect(exec1.skippedCount).toBe(0);
+
+      const importedLeads = await listLeads(orgAContext, {
+        search: "01077778888",
+      });
+      const importedLead = importedLeads[0]!;
+      const importStageHistory = await listLeadStageHistory(
+        orgAContext,
+        importedLead.id,
+      );
+      expect(importStageHistory[0]?.to_status).toBe("NEW");
+      expect(importStageHistory[0]?.metadata).toMatchObject({
+        source: "csv_import",
+        rowNumber: 2,
+      });
 
       // 2. Re-import with SKIP strategy
       const duplicateCsv =

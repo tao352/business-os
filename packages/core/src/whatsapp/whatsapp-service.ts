@@ -13,6 +13,7 @@ import type {
   WhatsAppWebhookPayload,
 } from "@business-os/types";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { createLeadInTransaction } from "../crm/lead-lifecycle.js";
 import { triggerRules } from "../rules/rule-runner.js";
 import {
   WhatsAppApiClient,
@@ -387,19 +388,19 @@ export async function processWhatsAppWebhookPayload(
             result.leadsUpdated++;
           } else {
             // Create new lead from WhatsApp inbound message
-            const newLeadRes = await tx.query(
-              `INSERT INTO leads (
-                organization_id, full_name, phone, status, source, custom_data
-              ) VALUES ($1, $2, $3, 'NEW', 'WHATSAPP', $4)
-              RETURNING *`,
-              [
-                systemContext.organizationId,
-                `WhatsApp Contact (${senderPhone})`,
-                senderPhone,
-                JSON.stringify({ initial_channel: "whatsapp" }),
-              ],
-            );
-            const newLead = newLeadRes.rows[0];
+            const newLead = await createLeadInTransaction(tx, systemContext, {
+              fullName: `WhatsApp Contact (${senderPhone})`,
+              phone: senderPhone,
+              status: "NEW",
+              source: "WHATSAPP",
+              customData: { initial_channel: "whatsapp" },
+              initialStageMetadata: {
+                source: "whatsapp_inbound",
+                wamid,
+                phoneNumberId,
+              },
+            });
+
             targetLeadId = newLead.id;
             result.leadsCreated++;
             newlyCreatedLead = newLead;

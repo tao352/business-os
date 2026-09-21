@@ -257,6 +257,27 @@ describe("Phase 9: Meta Lead Ads Ingestion Engine (Live Tests)", () => {
       expect(lead.custom_data.meta_attribution.campaign_name).toBe(
         "Cairo Gate Sheikh Zayed",
       );
+      expect(lead.last_contacted_at).toBeNull();
+
+      const initialStage = await withTenantContext(
+        orgAContext.organizationId,
+        async (tx) => {
+          const res = await tx.query(
+            `SELECT to_status, metadata
+             FROM lead_stage_history
+             WHERE lead_id = $1
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [lead.id],
+          );
+          return res.rows[0];
+        },
+      );
+      expect(initialStage.to_status).toBe("NEW");
+      expect(initialStage.metadata).toMatchObject({
+        source: "meta_lead_ads",
+        leadgenId: leadgenId1,
+      });
 
       // Verify Timeline Activity
       const activities = await withTenantContext(
@@ -351,6 +372,9 @@ describe("Phase 9: Meta Lead Ads Ingestion Engine (Live Tests)", () => {
         },
       );
       expect(leads.length).toBe(1);
+      // A repeated form submission is engagement, not proof that a salesperson
+      // contacted the customer. It must not make anti-leakage health look fresh.
+      expect(leads[0].last_contacted_at).toBeNull();
 
       // Verify multiple activities logged on timeline
       const activities = await withTenantContext(

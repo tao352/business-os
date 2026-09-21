@@ -16,6 +16,13 @@ export interface LogActivityInput {
   details?: Record<string, unknown>;
 }
 
+const CUSTOMER_CONTACT_ACTIVITY_TYPES: ReadonlySet<ActivityType> = new Set([
+  "CALL",
+  "WHATSAPP",
+  "EMAIL",
+  "MEETING",
+]);
+
 /**
  * Logs an interaction on the lead's chronological timeline.
  */
@@ -37,11 +44,18 @@ export async function logActivity(
     const targetLead = leadRes.rows[0];
     assertPermission(context, "update", "lead", targetLead);
 
-    // 2. Update lead's last_contacted_at timestamp
-    await tx.query(
-      "UPDATE leads SET last_contacted_at = NOW(), updated_at = NOW() WHERE id = $1",
-      [input.leadId],
-    );
+    // 2. Only real customer contact advances last_contacted_at.
+    // Internal notes must never make an untouched lead look followed up.
+    if (CUSTOMER_CONTACT_ACTIVITY_TYPES.has(input.activityType)) {
+      await tx.query(
+        "UPDATE leads SET last_contacted_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [input.leadId],
+      );
+    } else {
+      await tx.query("UPDATE leads SET updated_at = NOW() WHERE id = $1", [
+        input.leadId,
+      ]);
+    }
 
     // 3. Insert the activity record
     const res = await tx.query(

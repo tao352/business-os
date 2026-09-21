@@ -1,19 +1,22 @@
 import { withTenantContext } from "@business-os/database";
 import { logger } from "@business-os/logger";
-import type {
-  TenantContext,
-  ImportEntityType,
-  DuplicateStrategy,
-  ColumnMapping,
-  ImportDryRunResult,
-  ImportExecutionResult,
-  ImportRowError,
-  CustomFieldDefinition,
+import {
+  LeadStatusSchema,
+  type TenantContext,
+  type ImportEntityType,
+  type DuplicateStrategy,
+  type ColumnMapping,
+  type ImportDryRunResult,
+  type ImportExecutionResult,
+  type ImportRowError,
+  type CustomFieldDefinition,
+  type LeadStatus,
 } from "@business-os/types";
 import { parseCsv } from "./csv-parser.js";
 import { autoDetectColumnMapping } from "./column-matcher.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { createLeadInTransaction } from "../crm/lead-lifecycle.js";
 import { assertPermission } from "../permissions/checker.js";
 import {
   inferUsageTypeFromUnitType,
@@ -47,6 +50,15 @@ async function getCustomFieldDefs(
     [orgId, typeKey],
   )) as { rows: CustomFieldDefinition[] };
   return res.rows;
+}
+
+function normalizeLeadStatus(value: unknown): LeadStatus | null {
+  const parsed = LeadStatusSchema.safeParse(
+    String(value ?? "NEW")
+      .trim()
+      .toUpperCase(),
+  );
+  return parsed.success ? parsed.data : null;
 }
 
 function parseRawValueForField(
@@ -151,6 +163,17 @@ export async function validateAndDryRunImport(
           });
           continue;
         }
+
+        const normalizedLeadStatus = normalizeLeadStatus(coreData.status);
+        if (!normalizedLeadStatus) {
+          errors.push({
+            rowNumber: rowNum,
+            field: "status",
+            message: `Unsupported lead status '${String(coreData.status)}'`,
+          });
+          continue;
+        }
+        coreData.status = normalizedLeadStatus;
 
         const uniqueKey = phone.replace(/[\s\-_]+/g, "");
         if (seenKeysInFile.has(uniqueKey)) {
@@ -394,20 +417,27 @@ export async function executeImport(
           }
         }
 
-        // INSERT
-        await client.query(
-          `INSERT INTO leads (organization_id, full_name, phone, email, status, source, custom_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            context.organizationId,
-            fullName,
-            phone,
-            coreData.email ?? null,
-            coreData.status ?? "NEW",
-            coreData.source ?? "IMPORT",
-            JSON.stringify(customData),
-          ],
-        );
+        const normalizedLeadStatus = normalizeLeadStatus(coreData.status);
+        if (!normalizedLeadStatus) {
+          // The dry-run already reports this row as invalid. Never let one bad
+          // imported status abort the entire tenant transaction.
+          continue;
+        }
+
+        // INSERT through the shared CRM creation invariant.
+        await createLeadInTransaction(client, context, {
+          fullName,
+          phone,
+          email: (coreData.email as string | undefined) ?? null,
+          status: normalizedLeadStatus,
+          source: String(coreData.source ?? "IMPORT"),
+          customData,
+          initialStageMetadata: {
+            source: "csv_import",
+            rowNumber: rowNum,
+          },
+        });
+
         importedCount++;
       } else if (entityType === "units") {
         if (!options.projectId) {

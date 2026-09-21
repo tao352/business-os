@@ -1,9 +1,14 @@
 import crypto from "node:crypto";
-import type { TenantContext, RuleAction } from "@business-os/types";
+import {
+  LeadStatusSchema,
+  type TenantContext,
+  type RuleAction,
+} from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
 import { enqueueWhatsAppOutbound } from "../whatsapp/whatsapp-outbox-service.js";
+import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 
 export interface ActionExecutionResult {
   action_type: string;
@@ -208,30 +213,52 @@ export async function executeRuleAction(
             error: "Action only applies to leads",
           };
         }
-        const newStatus = String(action.params.status || "CONTACTED");
-
-        await tx.query(
-          `UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2`,
-          [newStatus, entityId],
+        const parsedStatus = LeadStatusSchema.safeParse(
+          action.params.status ?? "CONTACTED",
         );
-        entity.status = newStatus;
+        if (!parsedStatus.success) {
+          return {
+            action_type: action.action_type,
+            status: "FAILED",
+            error: "Invalid Lead status configured for automation",
+          };
+        }
+        const newStatus = parsedStatus.data;
 
-        await tx.query(
-          `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
-           VALUES ($1, $2, $3, 'STATUS_CHANGE', $4, $5)`,
-          [
-            context.organizationId,
-            entityId,
-            context.userId,
-            `Lead status changed to ${newStatus} via Automation`,
-            JSON.stringify({ ruleId, newStatus }),
-          ],
+        const transition = await transitionLeadStageInTransaction(
+          tx,
+          context,
+          entityId,
+          newStatus,
+          {
+            enforceTransition: false,
+            metadata: {
+              source: "automation_rule",
+              ruleId,
+              actionType: action.action_type,
+            },
+          },
         );
+        entity.status = transition.lead.status as string;
+
+        if (transition.changed) {
+          await tx.query(
+            `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
+             VALUES ($1, $2, $3, 'STATUS_CHANGE', $4, $5)`,
+            [
+              context.organizationId,
+              entityId,
+              context.userId,
+              `Lead status changed to ${newStatus} via Automation`,
+              JSON.stringify({ ruleId, newStatus }),
+            ],
+          );
+        }
 
         return {
           action_type: action.action_type,
           status: "SUCCESS",
-          result: { newStatus },
+          result: { newStatus, changed: transition.changed },
         };
       }
 

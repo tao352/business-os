@@ -6,6 +6,7 @@ import type {
   MetaWebhookPayload,
 } from "@business-os/types";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { createLeadInTransaction } from "../crm/lead-lifecycle.js";
 import { parseMetaLeadData } from "./meta-lead-mapper.js";
 import { MetaLeadFetcher, DefaultMetaLeadFetcher } from "./meta-fetcher.js";
 import { findMetaIntegrationByPageId } from "./meta-integration-service.js";
@@ -111,7 +112,7 @@ export async function ingestMetaLead(
       };
 
       await tx.query(
-        `UPDATE leads SET custom_data = $1, last_contacted_at = NOW(), updated_at = NOW()
+        `UPDATE leads SET custom_data = $1, updated_at = NOW()
          WHERE id = $2`,
         [JSON.stringify(updatedCustom), existingLead.id],
       );
@@ -173,23 +174,19 @@ export async function ingestMetaLead(
       },
     };
 
-    const newLeadRes = await tx.query(
-      `INSERT INTO leads (
-        organization_id, full_name, phone, email, status,
-        source, campaign_id, custom_data
-      ) VALUES ($1, $2, $3, $4, 'NEW', 'FACEBOOK_LEAD_ADS', $5, $6)
-      RETURNING *`,
-      [
-        context.organizationId,
-        parsed.fullName,
-        parsed.phone,
-        parsed.email,
-        parsed.campaignId,
-        JSON.stringify(leadCustomData),
-      ],
-    );
-
-    const newLead = newLeadRes.rows[0];
+    const newLead = await createLeadInTransaction(tx, context, {
+      fullName: parsed.fullName,
+      phone: parsed.phone,
+      email: parsed.email,
+      status: "NEW",
+      source: "FACEBOOK_LEAD_ADS",
+      campaignId: parsed.campaignId,
+      customData: leadCustomData,
+      initialStageMetadata: {
+        source: "meta_lead_ads",
+        leadgenId: input.leadgenId,
+      },
+    });
 
     // Immutable Audit Log
     await recordAuditLog(tx, context, {

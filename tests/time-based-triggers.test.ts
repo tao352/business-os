@@ -177,8 +177,9 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
   });
 
   describe("1. Stale Lead Inactivity Detection & SLA Escalation", () => {
-    it("fires lead.inactivity_exceeded rule, changes status to ESCALATED and reassigns to manager", async () => {
-      // 1. Create Smart Rule
+    it("fires lead.inactivity_exceeded and escalates ownership without inventing a pipeline stage", async () => {
+      // 1. Create Smart Rule.
+      // Escalation is an operational action, not a sales pipeline stage.
       await createRule(orgAContext, {
         name: "SLA Escalation: Inactive Leads for 24+ Hours",
         trigger_type: "lead.inactivity_exceeded",
@@ -190,11 +191,6 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
           },
         ],
         actions: [
-          {
-            action_type: "lead.change_status",
-            params: { status: "ESCALATED" },
-            delay_seconds: 0,
-          },
           {
             action_type: "lead.assign_specific_user",
             params: { user_id: managerAId },
@@ -210,7 +206,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
       expect(res.rulesTriggered).toBe(1);
       expect(res.details[0].entityId).toBe(staleLeadId);
 
-      // 3. Verify Database Changes
+      // 3. Verify operational escalation without corrupting pipeline semantics.
       const updatedLead = await withTenantContext(
         orgAContext.organizationId,
         async (tx) => {
@@ -221,7 +217,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
         },
       );
 
-      expect(updatedLead.status).toBe("ESCALATED");
+      expect(updatedLead.status).toBe("NEW");
       expect(updatedLead.assigned_user_id).toBe(managerAId);
 
       // Verify Fresh Lead was NOT modified

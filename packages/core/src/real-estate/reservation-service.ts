@@ -10,6 +10,7 @@ import {
   assertCanAccessIndividualLeadRecords,
 } from "../permissions/checker.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 
 export class UnitNotAvailableError extends Error {
   constructor(
@@ -213,10 +214,22 @@ export async function createReservation(
         throw new Error("Failed to create reservation");
       }
 
-      // 6. Progress Lead status to RESERVED
-      await client.query(
-        `UPDATE leads SET status = 'RESERVED', updated_at = NOW() WHERE id = $1`,
-        [input.leadId],
+      // 6. Progress Lead status to RESERVED through the shared lifecycle engine.
+      // Reservation is an authoritative operational event, so preserve the prior
+      // behavior of allowing the system to progress the pipeline from any open stage.
+      await transitionLeadStageInTransaction(
+        client,
+        context,
+        input.leadId,
+        "RESERVED",
+        {
+          enforceTransition: false,
+          metadata: {
+            source: "reservation_created",
+            reservationId: created.id,
+            unitId: input.unitId,
+          },
+        },
       );
 
       // 7. Append Activity to Lead Timeline

@@ -23,6 +23,7 @@ import {
   registerUser,
   createOrganization,
   createLead,
+  listLeadStageHistory,
   updateLead,
   listLeadActivities,
   addLeadInterest,
@@ -456,6 +457,13 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       expect(visit.id).toBeDefined();
       expect(visit.status).toBe("SCHEDULED");
 
+      const visitStageHistory = await listLeadStageHistory(orgAContext, leadId);
+      expect(visitStageHistory[0]?.to_status).toBe("SITE_VISIT_BOOKED");
+      expect(visitStageHistory[0]?.metadata).toMatchObject({
+        source: "visit_scheduled",
+        visitId: visit.id,
+      });
+
       // Verify timeline activity logged
       const activities = await listLeadActivities(orgAContext, leadId);
       const visitActivity = activities.find(
@@ -487,6 +495,16 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
 
       expect(reservation.id).toBeDefined();
       expect(reservation.status).toBe("CONFIRMED");
+
+      const reservationStageHistory = await listLeadStageHistory(
+        orgAContext,
+        leadId,
+      );
+      expect(reservationStageHistory[0]?.to_status).toBe("RESERVED");
+      expect(reservationStageHistory[0]?.metadata).toMatchObject({
+        source: "reservation_created",
+        reservationId: reservation.id,
+      });
 
       // Verify Unit status changed to RESERVED
       const reservedUnit = await getUnit(orgAContext, unitId);
@@ -545,6 +563,16 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
 
       expect(contract.id).toBeDefined();
       expect(contract.status).toBe("SIGNED");
+
+      const contractStageHistory = await listLeadStageHistory(
+        orgAContext,
+        leadId,
+      );
+      expect(contractStageHistory[0]?.to_status).toBe("CONTRACTED");
+      expect(contractStageHistory[0]?.metadata).toMatchObject({
+        source: "contract_executed",
+        contractId: contract.id,
+      });
 
       // 4. Verify Unit status permanently set to CONTRACTED
       const contractedUnit = await getUnit(orgAContext, unitId);

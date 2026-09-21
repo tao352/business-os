@@ -400,3 +400,20 @@
      - Playwright browser E2E (9 passed, 1 skipped) and Visual QA (1 passed) passing 100%.
      - Strict TypeScript typecheck (`tsc --noEmit`), Next.js production build, and Prettier clean.
 - **Rationale:** Delivers complete, production-hardened real estate inventory, wishlist matching, and financial lifecycle capabilities while maintaining absolute multi-tenant isolation, authorization safety, and strict architectural discipline.
+
+---
+
+### ADR-024: Phase 23A — Sales Pipeline Integrity and Task-Based Next Action
+
+- **Date:** 2026-09-21
+- **Status:** APPROVED [IMPLEMENTED]
+- **Context:** Phase 22 established the real-estate domain, but lead movement still lacked structured stage history, consistent closure reasons, and a reliable way to identify leads at risk of being forgotten.
+- **Decision:**
+  1. The earliest incomplete Task attached to a Lead is the authoritative Next Action. No duplicate next-action fields are added to the Lead record.
+  2. Lead lifecycle metadata records stage entry time, closure time, and structured closure reasons.
+  3. `lead_stage_history` records tenant-isolated pipeline transitions and grants the runtime role only `SELECT` and `INSERT`.
+  4. Manual pipeline changes use guarded transitions and record audit and timeline history.
+  5. Follow-up health is derived as `NO_NEXT_ACTION`, `OVERDUE_NEXT_ACTION`, `STALE_CONTACT`, or `HEALTHY`.
+  6. Only customer-contact activities such as calls, WhatsApp, email, and meetings update `last_contacted_at`; internal notes do not.
+  7. Higher-level sales execution logic lives in the dedicated `sales` module rather than expanding CRM entity services indefinitely.
+- **Rationale:** This creates a single source of truth for follow-up work, makes pipeline leakage measurable, preserves tenant isolation, and gives future SLA, automation, analytics, and AI features a modular sales boundary.

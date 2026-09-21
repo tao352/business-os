@@ -335,6 +335,26 @@ describe("Phase 11: WhatsApp Cloud API Integration (Live Tests)", () => {
       expect(newLead).toBeDefined();
       expect(newLead.source).toBe("WHATSAPP");
       expect(newLead.phone).toBe(newClientPhone);
+
+      const initialStage = await withTenantContext(
+        orgAContext.organizationId,
+        async (tx) => {
+          const res = await tx.query(
+            `SELECT to_status, metadata
+             FROM lead_stage_history
+             WHERE lead_id = $1
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [newLead.id],
+          );
+          return res.rows[0];
+        },
+      );
+      expect(initialStage.to_status).toBe("NEW");
+      expect(initialStage.metadata).toMatchObject({
+        source: "whatsapp_inbound",
+        wamid: `wamid_inbound_new_${uniqueSuffix}`,
+      });
     });
   });
 
