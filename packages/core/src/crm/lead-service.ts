@@ -67,7 +67,8 @@ export async function createLead(
     const res = await tx.query(
       `INSERT INTO leads (
         organization_id, full_name, phone, email, status,
-        assigned_user_id, campaign_id, source, custom_data
+        assigned_user_id, campaign_id, source,
+        custom_data
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
       [
@@ -356,29 +357,33 @@ export async function updateLead(
           : mergedCustomData;
     }
 
-    const updatedFullName =
-      input.fullName !== undefined
-        ? input.fullName.trim()
-        : currentLead.full_name;
-    const updatedPhone =
-      input.phone !== undefined ? input.phone.trim() : currentLead.phone;
-    const updatedEmail =
-      input.email !== undefined
-        ? input.email?.trim() || null
-        : currentLead.email;
+    const updates: string[] = ["updated_at = NOW()"];
+    const params: unknown[] = [leadId];
+    let paramIdx = 2;
+
+    if (input.fullName !== undefined) {
+      updates.push(`full_name = $${paramIdx++}`);
+      params.push(input.fullName.trim());
+    }
+    if (input.phone !== undefined) {
+      updates.push(`phone = $${paramIdx++}`);
+      params.push(input.phone.trim());
+    }
+    if (input.email !== undefined) {
+      updates.push(`email = $${paramIdx++}`);
+      params.push(input.email?.trim() || null);
+    }
+    if (input.customData !== undefined) {
+      updates.push(`custom_data = $${paramIdx++}`);
+      params.push(JSON.stringify(updatedCustomData));
+    }
 
     const res = await tx.query(
       `UPDATE leads
-       SET full_name = $1, phone = $2, email = $3, custom_data = $4, updated_at = NOW()
-       WHERE id = $5
+       SET ${updates.join(", ")}
+       WHERE id = $1
        RETURNING *`,
-      [
-        updatedFullName,
-        updatedPhone,
-        updatedEmail,
-        JSON.stringify(updatedCustomData),
-        leadId,
-      ],
+      params,
     );
 
     const updated = res.rows[0];

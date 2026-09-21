@@ -94,8 +94,8 @@ describe("Phase 19: Pilot Customer Onboarding & End-to-End Validation", () => {
       seededData = await seedPilotRealEstateData(pilotContext);
 
       expect(seededData.projects).toHaveLength(2);
-      expect(seededData.projects[0]?.name).toContain("تاج سيتي");
-      expect(seededData.projects[1]?.name).toContain("سراي");
+      expect(seededData.projects[0]?.name).toContain("حي الصفوة");
+      expect(seededData.projects[1]?.name).toContain("تن بوينت");
 
       expect(seededData.units).toHaveLength(3);
       expect(Number(seededData.units[0]?.price)).toBe(18500000); // 18.5M EGP Villa
@@ -121,7 +121,7 @@ describe("Phase 19: Pilot Customer Onboarding & End-to-End Validation", () => {
         leadId: lead.id,
         depositAmount: 500000,
         expiresAt,
-        notes: "حجز مبدئي لفيلا تاون سيتي مع سداد جدية حجز",
+        notes: "حجز مبدئي لفيلا حي الصفوة مع سداد جدية حجز",
       });
 
       expect(reservation.id).toBeDefined();
@@ -136,7 +136,7 @@ describe("Phase 19: Pilot Customer Onboarding & End-to-End Validation", () => {
         reservationId: reservation.id,
         unitId: villa.id,
         leadId: lead.id,
-        contractNumber: `CTR-TAJ-${uniqueSuffix.toUpperCase()}`,
+        contractNumber: `CTR-SAFWA-${uniqueSuffix.toUpperCase()}`,
         contractValue: Number(villa.price),
         signedAt: new Date().toISOString(),
         status: "SIGNED",
@@ -167,11 +167,15 @@ describe("Phase 19: Pilot Customer Onboarding & End-to-End Validation", () => {
   describe("3. Zero-Leak Multi-Tenant Verification", () => {
     it("should strictly isolate pilot real estate data from competitor organizations", async () => {
       const orgBProjects = await listProjects(orgBContext);
-      const leakedTaj = orgBProjects.find((p) => p.name.includes("تاج سيتي"));
-      const leakedSarai = orgBProjects.find((p) => p.name.includes("سراي"));
+      const leakedSafwa = orgBProjects.find((p) =>
+        p.name.includes("حي الصفوة"),
+      );
+      const leakedTenPoint = orgBProjects.find((p) =>
+        p.name.includes("تن بوينت"),
+      );
 
-      expect(leakedTaj).toBeUndefined();
-      expect(leakedSarai).toBeUndefined();
+      expect(leakedSafwa).toBeUndefined();
+      expect(leakedTenPoint).toBeUndefined();
 
       const orgBDashboard = await getExecutiveDashboard(orgBContext);
       expect(orgBDashboard.totalContracts).toBe(0);

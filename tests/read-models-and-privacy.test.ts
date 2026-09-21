@@ -291,9 +291,10 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
       const palmHills = projects.find((p) => p.name === "Palm Hills New Cairo");
       expect(palmHills).toBeDefined();
       expect(palmHills?.available_units).toBe(1);
-      expect(palmHills?.units_count).toBe(1);
-      // Status property must not exist on project
-      expect((palmHills as any).status).toBeUndefined();
+      // construction_status, sales_status, and project_type are genuine schema columns in Phase 22
+      expect(palmHills?.construction_status).toBeDefined();
+      expect(palmHills?.sales_status).toBeDefined();
+      expect(palmHills?.project_type).toBeDefined();
     });
 
     it("listUnitsInventory implements truthful totalCount and pagination", async () => {
@@ -307,6 +308,8 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
       expect(res.pageSize).toBe(10);
       expect(res.units[0].unit_number).toBe("PH-101");
       expect(res.units[0].project_name).toBe("Palm Hills New Cairo");
+      expect(res.units[0].usage_type).toBeDefined();
+      expect(res.units[0].unit_type).toBeDefined();
     });
 
     it("getIntegrationStatus queries meta_integrations and whatsapp_integrations without relation errors and without secret leaks", async () => {

@@ -1,11 +1,15 @@
 import React from "react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { listProjectsOverview } from "@business-os/core";
+import { listProjectsOverview, getUiCapabilities } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
-import { Building2, MapPin } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { CreateProjectDialog } from "@/features/real-estate/create-project-dialog";
+import { Building2, MapPin, ArrowRight } from "lucide-react";
 
 export default async function ProjectsPage() {
   const context = await requireTenantContext();
+  const capabilities = getUiCapabilities(context);
 
   // Fetch real estate projects overview via core read-model service
   let projects: Awaited<ReturnType<typeof listProjectsOverview>>;
@@ -17,14 +21,19 @@ export default async function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-ink tracking-tight">
-          Real Estate Projects
-        </h1>
-        <p className="text-xs text-ink-muted mt-0.5">
-          {projects.length}{" "}
-          {projects.length === 1 ? "development" : "developments"} in portfolio
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-ink tracking-tight">
+            Real Estate Developments
+          </h1>
+          <p className="text-xs text-ink-muted mt-0.5">
+            {projects.length}{" "}
+            {projects.length === 1 ? "development" : "developments"} in
+            portfolio
+          </p>
+        </div>
+
+        <CreateProjectDialog canCreate={capabilities.canCreateProject} />
       </div>
 
       {projects.length === 0 ? (
@@ -40,18 +49,56 @@ export default async function ProjectsPage() {
           {projects.map((project) => (
             <div
               key={project.id}
-              className="bg-surface border border-line rounded-xl p-5 flex flex-col justify-between"
+              className="bg-surface border border-line rounded-xl p-5 flex flex-col justify-between hover:border-line-strong transition-colors"
             >
               <div>
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <h2 className="text-sm font-bold text-ink truncate">
                     {project.name}
                   </h2>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge
+                      variant={
+                        project.project_type === "COMMERCIAL"
+                          ? "purple"
+                          : "info"
+                      }
+                    >
+                      {project.project_type}
+                    </Badge>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 text-xs text-ink-secondary mb-3">
                   <MapPin className="w-3.5 h-3.5 text-ink-faint shrink-0" />
                   <span className="truncate">{project.location}</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                  <Badge
+                    variant={
+                      project.construction_status === "COMPLETED" ||
+                      project.construction_status === "READY_FOR_DELIVERY"
+                        ? "success"
+                        : "neutral"
+                    }
+                  >
+                    {project.construction_status.replace(/_/g, " ")}
+                  </Badge>
+                  <Badge
+                    variant={
+                      project.sales_status === "SELLING"
+                        ? "info"
+                        : project.sales_status === "SOLD_OUT"
+                          ? "warning"
+                          : "outline"
+                    }
+                  >
+                    {project.sales_status.replace(/_/g, " ")}
+                  </Badge>
+                  <span className="text-[11px] text-ink-faint">
+                    {project.is_active ? "Active" : "Archived"}
+                  </span>
                 </div>
 
                 {project.description && (
@@ -67,10 +114,19 @@ export default async function ProjectsPage() {
                     {project.available_units}
                   </span>{" "}
                   available
+                  <span className="text-[11px] text-ink-faint block">
+                    {project.units_count || project.total_units || 0} total
+                    units
+                  </span>
                 </div>
-                <div className="text-[11px] text-ink-faint">
-                  {project.units_count || project.total_units || 0} total units
-                </div>
+
+                <Link
+                  href={`/app/units?projectId=${project.id}`}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover transition-colors"
+                >
+                  View Units
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
           ))}

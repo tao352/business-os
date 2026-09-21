@@ -6,7 +6,12 @@ export interface UiCapabilities {
   canExportLeads: boolean;
   canUpdateAllLeads: boolean;
   canReadProjects: boolean;
+  canCreateProject: boolean;
+  canUpdateProject: boolean;
   canReadUnits: boolean;
+  canCreateUnit: boolean;
+  canUpdateUnit: boolean;
+  canReserveUnit: boolean;
   canReadAutomations: boolean;
   canReadIntegrations: boolean;
   canReadSettings: boolean;
@@ -38,7 +43,12 @@ export function getUiCapabilities(
     canExportLeads: can(ctx, "export", "lead"),
     canUpdateAllLeads: can(ctx, "update_all", "lead"),
     canReadProjects: can(ctx, "read", "project"),
+    canCreateProject: can(ctx, "create", "project"),
+    canUpdateProject: can(ctx, "update", "project"),
     canReadUnits: can(ctx, "read", "unit"),
+    canCreateUnit: can(ctx, "create", "unit"),
+    canUpdateUnit: can(ctx, "update", "unit"),
+    canReserveUnit: can(ctx, "create", "reservation"),
     canReadAutomations: can(ctx, "read", "smart_rule"),
     canReadIntegrations:
       can(ctx, "manage", "organization") ||

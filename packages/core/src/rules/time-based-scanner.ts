@@ -4,6 +4,7 @@ import type {
   TimeTriggerEvaluationResult,
 } from "@business-os/types";
 import { triggerRules } from "./rule-runner.js";
+import { expireStaleReservations } from "../real-estate/reservation-service.js";
 
 /**
  * Scans for leads that have not received contact activity within the threshold window
@@ -167,6 +168,38 @@ export async function scanDueTasks(
 }
 
 /**
+ * Protection B: Scheduled sweeper scanning and expiring all past-due active reservations.
+ * Idempotently transitions expired reservations to EXPIRED, restores units to AVAILABLE,
+ * and records execution in scheduled_job_runs.
+ */
+export async function sweepExpiredReservations(
+  context: TenantContext,
+): Promise<TimeTriggerEvaluationResult> {
+  const startedAt = new Date();
+  const result = await expireStaleReservations(context);
+
+  await withTenantContext(context.organizationId, async (tx) => {
+    await tx.query(
+      `INSERT INTO scheduled_job_runs (
+        organization_id, job_type, entities_evaluated, rules_triggered,
+        status, started_at, completed_at
+      ) VALUES ($1, 'RESERVATION_EXPIRATION_SWEEP', $2, 0, 'COMPLETED', $3, NOW())`,
+      [context.organizationId, result.expiredCount, startedAt],
+    );
+  });
+
+  return {
+    jobType: "RESERVATION_EXPIRATION_SWEEP",
+    entitiesEvaluated: result.expiredCount,
+    rulesTriggered: 0,
+    details: result.expiredReservationIds.map((id) => ({
+      entityId: id,
+      rulesFiredCount: 0,
+    })),
+  };
+}
+
+/**
  * Runs all time-based scheduled scanners sequentially for an organization.
  */
 export async function runAllScheduledScanners(
@@ -174,6 +207,7 @@ export async function runAllScheduledScanners(
 ): Promise<TimeTriggerEvaluationResult[]> {
   const r1 = await scanInactivityExceededLeads(context);
   const r2 = await scanExpiringReservations(context);
-  const r3 = await scanDueTasks(context);
-  return [r1, r2, r3];
+  const r3 = await sweepExpiredReservations(context);
+  const r4 = await scanDueTasks(context);
+  return [r1, r2, r3, r4];
 }

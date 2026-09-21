@@ -84,3 +84,109 @@ export const switchOrgSchema = z.object({
     .string()
     .uuid("Target organization ID must be a valid UUID"),
 });
+
+export const createProjectSchema = z.object({
+  name: z.string().trim().min(1, "Project name is required").max(100),
+  location: z.string().trim().min(1, "Location is required").max(150),
+  description: z.string().trim().max(1000).optional().or(z.literal("")),
+  projectType: z
+    .enum(["RESIDENTIAL", "COMMERCIAL", "MIXED_USE"])
+    .default("COMMERCIAL"),
+  constructionStatus: z
+    .enum(["PLANNING", "UNDER_CONSTRUCTION", "READY_FOR_DELIVERY", "COMPLETED"])
+    .default("UNDER_CONSTRUCTION"),
+  salesStatus: z
+    .enum(["UPCOMING", "SELLING", "SOLD_OUT", "RENTAL_ONLY", "ON_HOLD"])
+    .default("SELLING"),
+  totalUnits: z.coerce.number().min(0).default(0),
+});
+
+export const createUnitSchema = z.object({
+  projectId: z.string().uuid("Invalid project ID"),
+  unitNumber: z.string().trim().min(1, "Unit number is required").max(50),
+  usageType: z
+    .enum(["RESIDENTIAL", "COMMERCIAL", "ADMINISTRATIVE", "MEDICAL"])
+    .default("COMMERCIAL"),
+  unitType: z
+    .enum([
+      "APARTMENT",
+      "DUPLEX",
+      "PENTHOUSE",
+      "STUDIO",
+      "STANDALONE_VILLA",
+      "TWIN_HOUSE",
+      "TOWNHOUSE",
+      "RETAIL_STORE",
+      "RESTAURANT_CAFE",
+      "PHARMACY",
+      "KIOSK",
+      "OFFICE",
+      "CLINIC",
+      "LABORATORY",
+      "OTHER",
+    ])
+    .default("RETAIL_STORE"),
+  modelName: z.string().trim().max(100).optional().or(z.literal("")),
+  floor: z.string().trim().max(20).optional().or(z.literal("")),
+  grossArea: z.coerce.number().positive("Gross area must be greater than 0"),
+  price: z.coerce.number().positive("Price must be greater than 0"),
+  currency: z.string().trim().default("EGP"),
+});
+
+export const reserveUnitSchema = z.object({
+  leadId: z.string().uuid("Invalid lead ID"),
+  unitId: z.string().uuid("Invalid unit ID"),
+  depositAmount: z.coerce
+    .number()
+    .positive("Deposit amount must be greater than 0"),
+  currency: z.string().trim().default("EGP"),
+  expiresAt: z.string().min(1, "Expiration date is required"),
+  paymentMethod: z.string().trim().optional().or(z.literal("")),
+  notes: z.string().trim().max(1000).optional().or(z.literal("")),
+});
+
+export const addLeadInterestSchema = z.object({
+  leadId: z.string().uuid("Invalid lead ID"),
+  projectId: z
+    .string()
+    .uuid("Invalid project ID")
+    .optional()
+    .or(z.literal(""))
+    .nullable(),
+  specificUnitId: z
+    .string()
+    .uuid("Invalid unit ID")
+    .optional()
+    .or(z.literal(""))
+    .nullable(),
+  usageType: z
+    .enum(["RESIDENTIAL", "COMMERCIAL", "ADMINISTRATIVE", "MEDICAL"])
+    .optional()
+    .nullable(),
+  unitType: z
+    .enum([
+      "APARTMENT",
+      "DUPLEX",
+      "PENTHOUSE",
+      "STUDIO",
+      "STANDALONE_VILLA",
+      "TWIN_HOUSE",
+      "TOWNHOUSE",
+      "RETAIL_STORE",
+      "RESTAURANT_CAFE",
+      "PHARMACY",
+      "KIOSK",
+      "OFFICE",
+      "CLINIC",
+      "LABORATORY",
+      "OTHER",
+    ])
+    .optional()
+    .nullable(),
+  budgetMin: z.coerce.number().min(0).optional().nullable(),
+  budgetMax: z.coerce.number().min(0).optional().nullable(),
+  areaMin: z.coerce.number().positive().optional().nullable(),
+  areaMax: z.coerce.number().positive().optional().nullable(),
+  isPrimary: z.boolean().default(true),
+  notes: z.string().trim().max(1000).optional().or(z.literal("")).nullable(),
+});

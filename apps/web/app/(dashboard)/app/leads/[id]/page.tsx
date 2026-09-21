@@ -2,12 +2,19 @@ import React from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { getLeadWorkspace, can } from "@business-os/core";
+import {
+  getLeadWorkspace,
+  getLeadMatchedUnits,
+  listProjects,
+  listLeadInterests,
+  can,
+} from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { LeadActionsBar } from "@/features/leads/lead-actions-bar";
 import { LeadTimeline } from "@/features/leads/lead-timeline";
 import { LeadSidePanel } from "@/features/leads/lead-side-panel";
+import { LeadInterestCard } from "@/features/real-estate/lead-interest-card";
 
 interface LeadDetailPageProps {
   params: Promise<{
@@ -29,6 +36,30 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   const { lead, assignedName, activities, tasks, members } = workspace;
   const canUpdateLead = can(context, "update", "lead", lead);
   const canReassignLead = can(context, "update_all", "lead");
+  const canReserveUnit = can(context, "create", "reservation");
+
+  // Fetch matched available units, 1:N property interests, and project list for real estate domain
+  let matchedUnits: Awaited<ReturnType<typeof getLeadMatchedUnits>> = [];
+  let projects: Awaited<ReturnType<typeof listProjects>> = [];
+  let interests: Awaited<ReturnType<typeof listLeadInterests>> = [];
+
+  try {
+    interests = await listLeadInterests(context, id);
+  } catch {
+    interests = [];
+  }
+
+  try {
+    matchedUnits = await getLeadMatchedUnits(context, id);
+  } catch {
+    matchedUnits = [];
+  }
+
+  try {
+    projects = await listProjects(context);
+  } catch {
+    projects = [];
+  }
 
   return (
     <div className="space-y-6">
@@ -80,23 +111,39 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
 
       {/* Main Command Center Grid: Workspace (68%) + Side Panel (32%) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Customer History Timeline */}
-        <div className="lg:col-span-8 bg-surface border border-line rounded-xl p-6">
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-line">
-            <div>
-              <h2 className="text-sm font-semibold text-ink">
-                Customer Timeline
-              </h2>
-              <p className="text-xs text-ink-muted mt-0.5">
-                Chronological record of status changes, messages, and notes.
-              </p>
-            </div>
-            <span className="text-xs text-ink-faint">
-              {activities.length} {activities.length === 1 ? "event" : "events"}
-            </span>
-          </div>
+        {/* Left: Real Estate Requirements & Matched Inventory + Timeline */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* Real Estate Requirements & Algorithmically Matched Inventory */}
+          <LeadInterestCard
+            leadId={lead.id}
+            leadName={lead.full_name}
+            interests={interests}
+            matchedUnits={matchedUnits}
+            projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+            canEdit={canUpdateLead}
+            canReserve={canReserveUnit}
+          />
 
-          <LeadTimeline events={activities} />
+          {/* Customer History Timeline */}
+          <div className="bg-surface border border-line rounded-xl p-6">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-line">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">
+                  Customer Timeline
+                </h2>
+                <p className="text-xs text-ink-muted mt-0.5">
+                  Chronological record of status changes, messages, notes, and
+                  reservations.
+                </p>
+              </div>
+              <span className="text-xs text-ink-faint">
+                {activities.length}{" "}
+                {activities.length === 1 ? "event" : "events"}
+              </span>
+            </div>
+
+            <LeadTimeline events={activities} />
+          </div>
         </div>
 
         {/* Right: Lead Details & Tasks Side Panel */}

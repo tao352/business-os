@@ -94,6 +94,7 @@ export async function provisionRuntimeDbRoles(
     );
 
     // 4. Ensure DDL restrictions and DML-only grants on public schema
+    await client.query(`REVOKE CREATE ON SCHEMA public FROM PUBLIC`);
     await client.query(`REVOKE CREATE ON SCHEMA public FROM "${username}"`);
     await client.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${username}"`,

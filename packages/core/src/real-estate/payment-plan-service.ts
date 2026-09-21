@@ -6,22 +6,50 @@ import {
   PaymentPlanInputSchema,
 } from "@business-os/types";
 
-function roundTwoDecimals(num: number): number {
-  return Math.round((num + Number.EPSILON) * 100) / 100;
+/**
+ * Convert major currency units (e.g. EGP) to integer minor currency units (piastres).
+ * 1 EGP = 100 piastres.
+ */
+function toPiastres(amount: number): number {
+  return Math.round(amount * 100);
 }
 
-function addMonthsToDate(dateStr: string, monthsToAdd: number): string {
-  const [yearStr, monthStr, dayStr] = dateStr.split("-");
-  const year = parseInt(yearStr || "2026", 10);
-  const month = parseInt(monthStr || "1", 10) - 1; // 0-indexed
-  const day = parseInt(dayStr || "1", 10);
+/**
+ * Convert integer minor currency units (piastres) back to major currency units (EGP).
+ */
+function toMajorCurrency(piastres: number): number {
+  return piastres / 100;
+}
 
-  const targetDate = new Date(Date.UTC(year, month + monthsToAdd, day));
+/**
+ * Adds months to an ISO date string (YYYY-MM-DD) with strict month-end clamping.
+ * Prevents JavaScript Date.UTC rollover bugs (e.g. Jan 31 -> March 3).
+ *
+ * Examples:
+ * - 2026-01-31 + 1 month  => 2026-02-28
+ * - 2028-01-31 + 1 month  => 2028-02-29 (leap year)
+ * - 2026-03-31 + 1 month  => 2026-04-30
+ * - 2026-12-31 + 1 month  => 2027-01-31
+ */
+export function addMonthsClamped(dateStr: string, monthsToAdd: number): string {
+  const parts = dateStr.split("-");
+  const year = parseInt(parts[0] || "2026", 10);
+  const month = parseInt(parts[1] || "1", 10) - 1; // 0-indexed
+  const originalDay = parseInt(parts[2] || "1", 10);
 
-  // Format as YYYY-MM-DD
-  const yyyy = targetDate.getUTCFullYear();
-  const mm = String(targetDate.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(targetDate.getUTCDate()).padStart(2, "0");
+  const totalMonths = month + monthsToAdd;
+  const targetYear = year + Math.floor(totalMonths / 12);
+  const targetMonth = ((totalMonths % 12) + 12) % 12;
+
+  // Day 0 of the month following targetMonth returns the last day of targetMonth
+  const maxDaysInTargetMonth = new Date(
+    Date.UTC(targetYear, targetMonth + 1, 0),
+  ).getUTCDate();
+  const clampedDay = Math.min(originalDay, maxDaysInTargetMonth);
+
+  const yyyy = targetYear;
+  const mm = String(targetMonth + 1).padStart(2, "0");
+  const dd = String(clampedDay).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
 
@@ -38,21 +66,27 @@ function getFrequencyMonths(freq: PaymentFrequency): number {
   }
 }
 
+/**
+ * Generates an installment payment schedule using integer piastre arithmetic.
+ * Guarantees the invariant: downPayment + sum(installments) + deliveryPayment === unitPrice
+ * exactly to the piastre, allocating integer drift to the final installment.
+ */
 export function generatePaymentSchedule(
   rawInput: PaymentPlanInput,
 ): PaymentScheduleResult {
   const input = PaymentPlanInputSchema.parse(rawInput);
 
-  const totalPrice = roundTwoDecimals(input.totalPrice);
-  const downPaymentAmount = roundTwoDecimals(
-    totalPrice * (input.downPaymentPercent / 100),
+  // Convert contract components to integer piastres (1 EGP = 100 piastres)
+  const totalPiastres = toPiastres(input.totalPrice);
+  const downPaymentPiastres = Math.round(
+    (totalPiastres * input.downPaymentPercent) / 100,
   );
   const deliveryPercent = input.deliveryPaymentPercent ?? 0;
-  const deliveryAmount = roundTwoDecimals(totalPrice * (deliveryPercent / 100));
+  const deliveryPiastres = Math.round((totalPiastres * deliveryPercent) / 100);
 
-  const remainingForInstallments = roundTwoDecimals(
-    totalPrice - downPaymentAmount - deliveryAmount,
-  );
+  // Principal balance remaining for periodic installments
+  const remainingInstallmentsPiastres =
+    totalPiastres - downPaymentPiastres - deliveryPiastres;
 
   const freqMonths = getFrequencyMonths(input.frequency);
   const installmentsPerYear = 12 / freqMonths;
@@ -64,84 +98,86 @@ export function generatePaymentSchedule(
     throw new Error("Installments count must be greater than zero");
   }
 
-  const baseInstallmentAmount = roundTwoDecimals(
-    remainingForInstallments / installmentsCount,
+  // Integer division with remainder distribution on the last installment
+  const baseInstallmentPiastres = Math.floor(
+    remainingInstallmentsPiastres / installmentsCount,
   );
-  // To avoid floating-point drift, compute remainder for the last installment
-  const totalBase = roundTwoDecimals(baseInstallmentAmount * installmentsCount);
-  const drift = roundTwoDecimals(remainingForInstallments - totalBase);
+  const remainderPiastres =
+    remainingInstallmentsPiastres - baseInstallmentPiastres * installmentsCount;
 
   const schedule: Installment[] = [];
   let itemCounter = 1;
 
   // 1. Down Payment (Due on startDate)
-  if (downPaymentAmount > 0) {
+  if (downPaymentPiastres > 0) {
     schedule.push({
       installmentNumber: itemCounter++,
       dueDate: input.startDate,
-      amount: downPaymentAmount,
+      amount: toMajorCurrency(downPaymentPiastres),
       type: "DOWN_PAYMENT",
-      percentage: input.downPaymentPercent,
+      percentage: Number(
+        ((downPaymentPiastres / totalPiastres) * 100).toFixed(2),
+      ),
     });
   }
 
   // 2. Regular Installments
   for (let i = 1; i <= installmentsCount; i++) {
-    const dueDate = addMonthsToDate(input.startDate, i * freqMonths);
-    // Add drift to the final installment so sum is mathematically exact
-    const amount =
+    const dueDate = addMonthsClamped(input.startDate, i * freqMonths);
+    // Allocate the integer remainder to the final installment so sum is exact to 1 piastre
+    const currentPiastres =
       i === installmentsCount
-        ? roundTwoDecimals(baseInstallmentAmount + drift)
-        : baseInstallmentAmount;
+        ? baseInstallmentPiastres + remainderPiastres
+        : baseInstallmentPiastres;
 
     schedule.push({
       installmentNumber: itemCounter++,
       dueDate,
-      amount,
+      amount: toMajorCurrency(currentPiastres),
       type: "INSTALLMENT",
-      percentage: roundTwoDecimals((amount / totalPrice) * 100),
+      percentage: Number(((currentPiastres / totalPiastres) * 100).toFixed(2)),
     });
   }
 
   // 3. Delivery Payment (if applicable)
-  if (deliveryAmount > 0) {
+  if (deliveryPiastres > 0) {
     const deliveryDueDate =
       input.deliveryDate ??
-      addMonthsToDate(input.startDate, installmentsCount * freqMonths);
+      addMonthsClamped(input.startDate, installmentsCount * freqMonths);
     schedule.push({
       installmentNumber: itemCounter++,
       dueDate: deliveryDueDate,
-      amount: deliveryAmount,
+      amount: toMajorCurrency(deliveryPiastres),
       type: "DELIVERY",
       percentage: deliveryPercent,
     });
   }
 
-  // 4. Maintenance Deposit (if specified)
+  // 4. Maintenance / Auxiliary Deposit (explicitly separated from contract principal)
   const maintenancePercent = input.maintenancePercent ?? 0;
-  const maintenanceAmount = roundTwoDecimals(
-    totalPrice * (maintenancePercent / 100),
+  const maintenancePiastres = Math.round(
+    (totalPiastres * maintenancePercent) / 100,
   );
-  if (maintenanceAmount > 0) {
+  if (maintenancePiastres > 0) {
     const maintenanceDueDate =
       input.deliveryDate ??
-      addMonthsToDate(input.startDate, installmentsCount * freqMonths);
+      addMonthsClamped(input.startDate, installmentsCount * freqMonths);
     schedule.push({
       installmentNumber: itemCounter++,
       dueDate: maintenanceDueDate,
-      amount: maintenanceAmount,
+      amount: toMajorCurrency(maintenancePiastres),
       type: "MAINTENANCE",
       percentage: maintenancePercent,
     });
   }
 
   return {
-    totalPrice,
-    downPaymentAmount,
+    totalPrice: toMajorCurrency(totalPiastres),
+    downPaymentAmount: toMajorCurrency(downPaymentPiastres),
     installmentsCount,
-    installmentAmount: baseInstallmentAmount,
-    deliveryAmount,
-    maintenanceAmount,
+    installmentAmount: toMajorCurrency(baseInstallmentPiastres),
+    deliveryAmount: toMajorCurrency(deliveryPiastres),
+    maintenanceAmount: toMajorCurrency(maintenancePiastres),
     schedule,
   };
 }

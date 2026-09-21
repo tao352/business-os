@@ -32,13 +32,44 @@ export const LeadSchema = z.object({
 
 export type Lead = z.infer<typeof LeadSchema>;
 
+export const ProjectTypeSchema = z.enum([
+  "COMMERCIAL",
+  "RESIDENTIAL",
+  "MIXED_USE",
+]);
+
+export type ProjectType = z.infer<typeof ProjectTypeSchema>;
+
+export const ConstructionStatusSchema = z.enum([
+  "PLANNING",
+  "UNDER_CONSTRUCTION",
+  "READY_FOR_DELIVERY",
+  "COMPLETED",
+]);
+
+export type ConstructionStatus = z.infer<typeof ConstructionStatusSchema>;
+
+export const SalesStatusSchema = z.enum([
+  "UPCOMING",
+  "SELLING",
+  "SOLD_OUT",
+  "RENTAL_ONLY",
+  "ON_HOLD",
+]);
+
+export type SalesStatus = z.infer<typeof SalesStatusSchema>;
+
 export const ProjectSchema = z.object({
   id: z.string().uuid(),
   organization_id: z.string().uuid(),
   name: z.string().min(2).max(150),
   location: z.string().min(2).max(255),
-  description: z.string().optional(),
+  project_type: ProjectTypeSchema.default("COMMERCIAL"),
+  construction_status: ConstructionStatusSchema.default("UNDER_CONSTRUCTION"),
+  sales_status: SalesStatusSchema.default("SELLING"),
+  description: z.string().nullable().optional(),
   total_units: z.number().int().default(0),
+  is_active: z.boolean().default(true),
   custom_data: z.record(z.unknown()).default({}),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
@@ -55,16 +86,49 @@ export const UnitStatusSchema = z.enum([
 
 export type UnitStatus = z.infer<typeof UnitStatusSchema>;
 
+export const UnitUsageTypeSchema = z.enum([
+  "RESIDENTIAL",
+  "COMMERCIAL",
+  "ADMINISTRATIVE",
+  "MEDICAL",
+]);
+
+export type UnitUsageType = z.infer<typeof UnitUsageTypeSchema>;
+
+export const UnitTypeSchema = z.enum([
+  "APARTMENT",
+  "DUPLEX",
+  "PENTHOUSE",
+  "STUDIO",
+  "STANDALONE_VILLA",
+  "TWIN_HOUSE",
+  "TOWNHOUSE",
+  "RETAIL_STORE",
+  "RESTAURANT_CAFE",
+  "PHARMACY",
+  "KIOSK",
+  "OFFICE",
+  "CLINIC",
+  "LABORATORY",
+  "OTHER",
+]);
+
+export type UnitType = z.infer<typeof UnitTypeSchema>;
+
 export const UnitSchema = z.object({
   id: z.string().uuid(),
   organization_id: z.string().uuid(),
   project_id: z.string().uuid(),
   unit_number: z.string().min(1).max(50),
-  unit_type: z.string().min(2).max(50), // e.g. Apartment, Villa, Duplex, Retail, Penthouse
+  usage_type: UnitUsageTypeSchema.default("COMMERCIAL"),
+  unit_type: UnitTypeSchema.default("RETAIL_STORE"),
+  model_name: z.string().nullable().optional(),
+  floor: z.string().nullable().optional(),
   gross_area: z.number().positive(),
   price: z.number().positive(),
   currency: z.string().default("EGP"),
   status: UnitStatusSchema.default("AVAILABLE"),
+  is_active: z.boolean().default(true),
   payment_plan_template: z.record(z.unknown()).default({}),
   custom_data: z.record(z.unknown()).default({}),
   created_at: z.string().datetime(),
@@ -72,6 +136,38 @@ export const UnitSchema = z.object({
 });
 
 export type Unit = z.infer<typeof UnitSchema>;
+
+export const LeadPropertyInterestStatusSchema = z.enum([
+  "ACTIVE",
+  "FULFILLED",
+  "ABANDONED",
+]);
+
+export type LeadPropertyInterestStatus = z.infer<
+  typeof LeadPropertyInterestStatusSchema
+>;
+
+export const LeadPropertyInterestSchema = z.object({
+  id: z.string().uuid(),
+  organization_id: z.string().uuid(),
+  lead_id: z.string().uuid(),
+  project_id: z.string().uuid().nullable().optional(),
+  specific_unit_id: z.string().uuid().nullable().optional(),
+  usage_type: UnitUsageTypeSchema.nullable().optional(),
+  unit_type: UnitTypeSchema.nullable().optional(),
+  budget_min: z.number().min(0).nullable().optional(),
+  budget_max: z.number().min(0).nullable().optional(),
+  area_min: z.number().positive().nullable().optional(),
+  area_max: z.number().positive().nullable().optional(),
+  preferred_floors: z.array(z.string()).nullable().optional(),
+  is_primary: z.boolean().default(true),
+  status: LeadPropertyInterestStatusSchema.default("ACTIVE"),
+  notes: z.string().nullable().optional(),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
+
+export type LeadPropertyInterest = z.infer<typeof LeadPropertyInterestSchema>;
 
 export const PaymentFrequencySchema = z.enum([
   "MONTHLY",

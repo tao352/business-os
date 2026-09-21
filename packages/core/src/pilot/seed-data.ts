@@ -16,7 +16,8 @@ export interface SeededRealEstateData {
 }
 
 /**
- * Seeds high-fidelity Egyptian real estate commercial data for pilot tenants (Section 55 & 67).
+ * Seeds high-fidelity Egyptian real estate commercial data for pilot tenants.
+ * Aligned with Perfect Real Estate Development pilot projects (حي الصفوة & Ten Point Mall).
  */
 export async function seedPilotRealEstateData(
   context: TenantContext,
@@ -26,27 +27,34 @@ export async function seedPilotRealEstateData(
     "Seeding pilot real estate data",
   );
 
-  // 1. Seed Projects
-  const tajCity = await createProject(context, {
-    name: "كمبوند تاج سيتي (Taj City) - التجمع الخامس",
-    location: "القاهرة الجديدة، الطريق الدائري أمام فندق ماريوت",
-    description: "مشروع سكني تجاري متكامل على مساحة 3.5 مليون متر مربع",
-    totalUnits: 1500,
+  // 1. Seed Projects (Hay Al Safwa & Ten Point Mall)
+  const safwa = await createProject(context, {
+    name: "كمبوند حي الصفوة (Hay Al Safwa) - الشروق",
+    location: "مدينة الشروق",
+    description: "مشروع سكني متكامل يتميز بالهدوء والمساحات الخضراء",
+    projectType: "RESIDENTIAL",
+    constructionStatus: "UNDER_CONSTRUCTION",
+    salesStatus: "SELLING",
+    totalUnits: 120,
   });
 
-  const sarai = await createProject(context, {
-    name: "كمبوند سراي (Sarai) - طريق السويس",
-    location: "القاهرة الجديدة، طريق القاهرة - السويس بجوار مدينتي",
-    description:
-      "مجتمع سكني حديث يتميز ببحيرات كريستالية لاجون ومساحات خضراء شاسعة",
-    totalUnits: 2200,
+  const tenPoint = await createProject(context, {
+    name: "مول تن بوينت (Ten Point Mall) - القاهرة الجديدة",
+    location: "القاهرة الجديدة",
+    description: "مركز تجاري وطبي وإداري متكامل في موقع حيوي",
+    projectType: "COMMERCIAL",
+    constructionStatus: "UNDER_CONSTRUCTION",
+    salesStatus: "SELLING",
+    totalUnits: 80,
   });
 
-  // 2. Seed Units in Taj City
+  // 2. Seed Units
   const villa = await createUnit(context, {
-    projectId: tajCity.id,
+    projectId: safwa.id,
     unitNumber: "V-101",
-    unitType: "VILLA",
+    usageType: "RESIDENTIAL",
+    unitType: "STANDALONE_VILLA",
+    modelName: "فيلا مستقلة نموذج أ",
     grossArea: 320,
     price: 18500000,
     currency: "EGP",
@@ -54,29 +62,33 @@ export async function seedPilotRealEstateData(
   });
 
   const twinHouse = await createUnit(context, {
-    projectId: tajCity.id,
+    projectId: safwa.id,
     unitNumber: "TH-202",
+    usageType: "RESIDENTIAL",
     unitType: "TWIN_HOUSE",
+    modelName: "توين هاوس نموذج ب",
     grossArea: 240,
     price: 14200000,
     currency: "EGP",
     status: "AVAILABLE",
   });
 
-  const apartment = await createUnit(context, {
-    projectId: sarai.id,
-    unitNumber: "APT-305",
-    unitType: "APARTMENT",
-    grossArea: 155,
-    price: 7800000,
+  const clinic = await createUnit(context, {
+    projectId: tenPoint.id,
+    unitNumber: "CL-305",
+    usageType: "COMMERCIAL",
+    unitType: "CLINIC",
+    modelName: "عيادة طبية نموذج ج",
+    grossArea: 75,
+    price: 4500000,
     currency: "EGP",
     status: "AVAILABLE",
   });
 
   // 3. Seed Marketing Campaign & Realistic Leads
   await logCampaignSpend(context, {
-    campaignId: "cmp_taj_launch_2026",
-    campaignName: "إطلاق مرحلة الفيلات - تاج سيتي",
+    campaignId: "cmp_safwa_launch_2026",
+    campaignName: "إطلاق مرحلة الفيلات - حي الصفوة",
     source: "FACEBOOK_LEAD_ADS",
     spendAmount: 250000,
     spendDate: "2026-09-01",
@@ -87,7 +99,7 @@ export async function seedPilotRealEstateData(
     phone: "+201011112222",
     email: "hany.azab@arabcontractors.eg",
     source: "FACEBOOK_LEAD_ADS",
-    campaignId: "cmp_taj_launch_2026",
+    campaignId: "cmp_safwa_launch_2026",
     status: "NEW",
   });
 
@@ -145,8 +157,8 @@ export async function seedPilotRealEstateData(
   );
 
   return {
-    projects: [tajCity, sarai],
-    units: [villa, twinHouse, apartment],
+    projects: [safwa, tenPoint],
+    units: [villa, twinHouse, clinic],
     leads: [lead1, lead2, lead3],
     rules: [autoAssignRule],
     paymentPlanSample,
