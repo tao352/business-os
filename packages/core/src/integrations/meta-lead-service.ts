@@ -6,6 +6,7 @@ import type {
   MetaWebhookPayload,
 } from "@business-os/types";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { recordInitialLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 import { parseMetaLeadData } from "./meta-lead-mapper.js";
 import { MetaLeadFetcher, DefaultMetaLeadFetcher } from "./meta-fetcher.js";
 import { findMetaIntegrationByPageId } from "./meta-integration-service.js";
@@ -111,7 +112,7 @@ export async function ingestMetaLead(
       };
 
       await tx.query(
-        `UPDATE leads SET custom_data = $1, last_contacted_at = NOW(), updated_at = NOW()
+        `UPDATE leads SET custom_data = $1, updated_at = NOW()
          WHERE id = $2`,
         [JSON.stringify(updatedCustom), existingLead.id],
       );
@@ -190,6 +191,17 @@ export async function ingestMetaLead(
     );
 
     const newLead = newLeadRes.rows[0];
+
+    await recordInitialLeadStageInTransaction(
+      tx,
+      context,
+      newLead.id,
+      "NEW",
+      {
+        source: "meta_lead_ads",
+        leadgenId: input.leadgenId,
+      },
+    );
 
     // Immutable Audit Log
     await recordAuditLog(tx, context, {
