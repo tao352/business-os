@@ -86,7 +86,6 @@ describe("R1 Lead lifecycle through Smart Rules", () => {
     });
   });
 
-
   it("rejects an invalid automated Lead status without mutating the Lead", async () => {
     const suffix = crypto.randomBytes(4).toString("hex");
     const owner = await registerUser({
@@ -234,5 +233,4 @@ describe("R1 Lead lifecycle through Smart Rules", () => {
     expect(state.historyCount).toBe(1);
     expect(state.statusActivityCount).toBe(0);
   });
-
 });
