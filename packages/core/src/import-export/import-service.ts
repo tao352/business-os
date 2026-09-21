@@ -1,15 +1,16 @@
 import { withTenantContext } from "@business-os/database";
 import { logger } from "@business-os/logger";
-import type {
-  TenantContext,
-  ImportEntityType,
-  DuplicateStrategy,
-  ColumnMapping,
-  ImportDryRunResult,
-  ImportExecutionResult,
-  ImportRowError,
-  CustomFieldDefinition,
-  LeadStatus,
+import {
+  LeadStatusSchema,
+  type TenantContext,
+  type ImportEntityType,
+  type DuplicateStrategy,
+  type ColumnMapping,
+  type ImportDryRunResult,
+  type ImportExecutionResult,
+  type ImportRowError,
+  type CustomFieldDefinition,
+  type LeadStatus,
 } from "@business-os/types";
 import { parseCsv } from "./csv-parser.js";
 import { autoDetectColumnMapping } from "./column-matcher.js";
@@ -49,6 +50,15 @@ async function getCustomFieldDefs(
     [orgId, typeKey],
   )) as { rows: CustomFieldDefinition[] };
   return res.rows;
+}
+
+function normalizeLeadStatus(value: unknown): LeadStatus | null {
+  const parsed = LeadStatusSchema.safeParse(
+    String(value ?? "NEW")
+      .trim()
+      .toUpperCase(),
+  );
+  return parsed.success ? parsed.data : null;
 }
 
 function parseRawValueForField(
@@ -153,6 +163,17 @@ export async function validateAndDryRunImport(
           });
           continue;
         }
+
+        const normalizedLeadStatus = normalizeLeadStatus(coreData.status);
+        if (!normalizedLeadStatus) {
+          errors.push({
+            rowNumber: rowNum,
+            field: "status",
+            message: `Unsupported lead status '${String(coreData.status)}'`,
+          });
+          continue;
+        }
+        coreData.status = normalizedLeadStatus;
 
         const uniqueKey = phone.replace(/[\s\-_]+/g, "");
         if (seenKeysInFile.has(uniqueKey)) {
@@ -396,12 +417,19 @@ export async function executeImport(
           }
         }
 
+        const normalizedLeadStatus = normalizeLeadStatus(coreData.status);
+        if (!normalizedLeadStatus) {
+          // The dry-run already reports this row as invalid. Never let one bad
+          // imported status abort the entire tenant transaction.
+          continue;
+        }
+
         // INSERT through the shared CRM creation invariant.
         await createLeadInTransaction(client, context, {
           fullName,
           phone,
           email: (coreData.email as string | undefined) ?? null,
-          status: String(coreData.status ?? "NEW").toUpperCase() as LeadStatus,
+          status: normalizedLeadStatus,
           source: String(coreData.source ?? "IMPORT"),
           customData,
           initialStageMetadata: {
