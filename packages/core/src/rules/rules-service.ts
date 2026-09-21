@@ -1,12 +1,29 @@
 import { withTenantContext } from "@business-os/database";
-import type {
-  TenantContext,
-  SmartRule,
-  CreateRuleInput,
-  UpdateRuleInput,
-  TriggerType,
+import {
+  LeadStatusSchema,
+  type TenantContext,
+  type SmartRule,
+  type CreateRuleInput,
+  type UpdateRuleInput,
+  type TriggerType,
+  type RuleAction,
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
+
+function assertRuleActionsValid(actions: RuleAction[]): void {
+  for (const action of actions) {
+    if (action.action_type !== "lead.change_status") continue;
+
+    const parsed = LeadStatusSchema.safeParse(action.params.status);
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid Lead status configured for automation: '${String(
+          action.params.status,
+        )}'`,
+      );
+    }
+  }
+}
 
 /**
  * Creates a new Smart Rule within the tenant context.
@@ -16,6 +33,7 @@ export async function createRule(
   input: CreateRuleInput,
 ): Promise<SmartRule> {
   assertPermission(context, "manage", "organization");
+  assertRuleActionsValid(input.actions);
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(
@@ -70,6 +88,9 @@ export async function updateRule(
   input: UpdateRuleInput,
 ): Promise<SmartRule> {
   assertPermission(context, "manage", "organization");
+  if (input.actions) {
+    assertRuleActionsValid(input.actions);
+  }
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const existingRes = await tx.query(
