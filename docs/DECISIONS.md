@@ -400,4 +400,3 @@
      - Playwright browser E2E (9 passed, 1 skipped) and Visual QA (1 passed) passing 100%.
      - Strict TypeScript typecheck (`tsc --noEmit`), Next.js production build, and Prettier clean.
 - **Rationale:** Delivers complete, production-hardened real estate inventory, wishlist matching, and financial lifecycle capabilities while maintaining absolute multi-tenant isolation, authorization safety, and strict architectural discipline.
-
