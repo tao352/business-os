@@ -14,6 +14,7 @@ export interface CreateContractInput {
   reservationId?: string;
   leadId: string;
   unitId: string;
+  opportunityId?: string;
   contractNumber: string;
   contractValue: number;
   currency?: string;
@@ -25,6 +26,7 @@ export interface CreateContractInput {
 export interface ListContractsFilters {
   leadId?: string;
   unitId?: string;
+  opportunityId?: string;
   status?: ContractStatus;
 }
 
@@ -51,6 +53,7 @@ export async function createContract(
 
     const status = input.status ?? "DRAFT";
     const isExecuted = status === "SIGNED" || status === "ACTIVE";
+    let opportunityId = input.opportunityId ?? null;
 
     // 2. If linked to a Reservation, lock it second and verify it belongs
     // to exactly the same Lead + Unit. Draft contracts keep the reservation
@@ -60,8 +63,9 @@ export async function createContract(
         id: string;
         lead_id: string;
         unit_id: string;
+        opportunity_id: string | null;
       }>(
-        `SELECT id, lead_id, unit_id
+        `SELECT id, lead_id, unit_id, opportunity_id
          FROM reservations
          WHERE organization_id = $1 AND id = $2
          FOR UPDATE`,
@@ -80,12 +84,49 @@ export async function createContract(
         );
       }
 
+      if (
+        reservation.opportunity_id &&
+        opportunityId &&
+        reservation.opportunity_id !== opportunityId
+      ) {
+        throw new Error(
+          "Contract Opportunity does not match the Reservation Opportunity",
+        );
+      }
+
+      if (reservation.opportunity_id) {
+        opportunityId = reservation.opportunity_id;
+      }
+
       if (isExecuted) {
         await client.query(
           `UPDATE reservations
            SET status = 'CONVERTED', updated_at = NOW()
            WHERE organization_id = $1 AND id = $2`,
           [context.organizationId, input.reservationId],
+        );
+      }
+    }
+
+    if (opportunityId) {
+      const opportunityRes = await client.query<{ id: string }>(
+        `SELECT id
+         FROM deals
+         WHERE organization_id = $1 AND id = $2 AND lead_id = $3`,
+        [context.organizationId, opportunityId, input.leadId],
+      );
+      if (!opportunityRes.rows[0]) {
+        throw new Error(
+          `Opportunity '${opportunityId}' not found for Lead '${input.leadId}'`,
+        );
+      }
+
+      if (input.reservationId) {
+        await client.query(
+          `UPDATE reservations
+           SET opportunity_id = COALESCE(opportunity_id, $1), updated_at = NOW()
+           WHERE organization_id = $2 AND id = $3`,
+          [opportunityId, context.organizationId, input.reservationId],
         );
       }
     }
@@ -97,13 +138,14 @@ export async function createContract(
         reservation_id,
         lead_id,
         unit_id,
+        opportunity_id,
         contract_number,
         contract_value,
         currency,
         payment_schedule,
         signed_at,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `;
 
@@ -112,6 +154,7 @@ export async function createContract(
       input.reservationId ?? null,
       input.leadId,
       input.unitId,
+      opportunityId,
       input.contractNumber.trim(),
       input.contractValue,
       input.currency ?? "EGP",
@@ -157,6 +200,7 @@ export async function createContract(
           `Contract #${input.contractNumber} executed for Unit #${unit.unit_number} (Value: ${input.contractValue} ${input.currency ?? "EGP"})`,
           JSON.stringify({
             contractId: created.id,
+            opportunityId,
             contractNumber: input.contractNumber,
           }),
         ],
@@ -221,8 +265,9 @@ export async function signContract(
         id: string;
         lead_id: string;
         unit_id: string;
+        opportunity_id: string | null;
       }>(
-        `SELECT id, lead_id, unit_id
+        `SELECT id, lead_id, unit_id, opportunity_id
          FROM reservations
          WHERE organization_id = $1 AND id = $2
          FOR UPDATE`,
@@ -239,6 +284,34 @@ export async function signContract(
         throw new Error(
           "Contract reservation does not match the Contract Lead and Unit",
         );
+      }
+
+      if (
+        existing.opportunity_id &&
+        reservation.opportunity_id &&
+        existing.opportunity_id !== reservation.opportunity_id
+      ) {
+        throw new Error(
+          "Contract Opportunity does not match the Reservation Opportunity",
+        );
+      }
+
+      if (!existing.opportunity_id && reservation.opportunity_id) {
+        const inheritedRes = await client.query<Contract>(
+          `UPDATE contracts
+           SET opportunity_id = $1, updated_at = NOW()
+           WHERE organization_id = $2 AND id = $3
+           RETURNING *`,
+          [
+            reservation.opportunity_id,
+            context.organizationId,
+            contractId,
+          ],
+        );
+        const inherited = inheritedRes.rows[0];
+        if (inherited) {
+          existing.opportunity_id = inherited.opportunity_id;
+        }
       }
 
       await client.query(
@@ -324,8 +397,12 @@ export async function listContracts(
       params.push(filters.leadId);
     }
     if (filters.unitId) {
-      whereClauses.push(`unit_id = $${idx++}`);
+      whereClauses.push(`unit_id = ${idx++}`);
       params.push(filters.unitId);
+    }
+    if (filters.opportunityId) {
+      whereClauses.push(`opportunity_id = ${idx++}`);
+      params.push(filters.opportunityId);
     }
     if (filters.status) {
       whereClauses.push(`status = $${idx++}`);
