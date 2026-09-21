@@ -7,6 +7,7 @@ import {
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 
 export interface ScheduleVisitInput {
   leadId: string;
@@ -83,12 +84,27 @@ export async function scheduleVisit(
       ],
     );
 
-    // 4. Progress Lead Status to SITE_VISIT_BOOKED if currently NEW, CONTACTED, or QUALIFIED
-    await client.query(
-      `UPDATE leads
-       SET status = 'SITE_VISIT_BOOKED', updated_at = NOW()
-       WHERE id = $1 AND status IN ('NEW', 'CONTACTED', 'QUALIFIED', 'MEETING_SCHEDULED')`,
-      [input.leadId],
+    // 4. Progress Lead Status to SITE_VISIT_BOOKED only from the same
+    // stages that the legacy conditional UPDATE allowed.
+    await transitionLeadStageInTransaction(
+      client,
+      context,
+      input.leadId,
+      "SITE_VISIT_BOOKED",
+      {
+        onlyFrom: [
+          "NEW",
+          "CONTACTED",
+          "QUALIFIED",
+          "MEETING_SCHEDULED",
+        ],
+        enforceTransition: false,
+        metadata: {
+          source: "visit_scheduled",
+          visitId: created.id,
+          projectId: input.projectId,
+        },
+      },
     );
 
     // 5. Audit Log
