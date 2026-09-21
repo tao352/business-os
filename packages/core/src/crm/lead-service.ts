@@ -124,13 +124,9 @@ export async function createLead(
       ],
     );
 
-    await recordInitialLeadStageInTransaction(
-      tx,
-      context,
-      lead.id,
-      status,
-      { source: "lead_created" },
-    );
+    await recordInitialLeadStageInTransaction(tx, context, lead.id, status, {
+      source: "lead_created",
+    });
 
     return lead;
   });
