@@ -1,5 +1,6 @@
 import {
   LeadStatusSchema,
+  type Lead,
   type LeadClosureReason,
   type LeadStatus,
   type TenantContext,
@@ -50,7 +51,7 @@ export async function createLeadInTransaction(
   tx: TransactionClient,
   context: TenantContext,
   input: CreateLeadInTransactionInput,
-): Promise<Record<string, unknown>> {
+): Promise<Lead> {
   const status = LeadStatusSchema.parse(input.status ?? "NEW");
   const source = input.source?.trim() || "MANUAL";
 
@@ -73,7 +74,7 @@ export async function createLeadInTransaction(
     ],
   );
 
-  const lead = res.rows[0] as Record<string, unknown> | undefined;
+  const lead = res.rows[0] as Lead | undefined;
   if (!lead) {
     throw new Error("Failed to create lead");
   }
