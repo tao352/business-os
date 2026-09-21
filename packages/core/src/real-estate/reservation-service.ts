@@ -542,11 +542,11 @@ export async function listReservations(
       params.push(filters.leadId);
     }
     if (filters.unitId) {
-      whereClauses.push(`r.unit_id = ${idx++}`);
+      whereClauses.push(`r.unit_id = $${idx++}`);
       params.push(filters.unitId);
     }
     if (filters.opportunityId) {
-      whereClauses.push(`r.opportunity_id = ${idx++}`);
+      whereClauses.push(`r.opportunity_id = $${idx++}`);
       params.push(filters.opportunityId);
     }
     if (filters.status) {
