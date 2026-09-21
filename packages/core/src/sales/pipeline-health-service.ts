@@ -51,11 +51,7 @@ export async function listLeadFollowUpHealth(
   const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 200);
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const params: unknown[] = [
-      context.organizationId,
-      staleAfterHours,
-      limit,
-    ];
+    const params: unknown[] = [context.organizationId, staleAfterHours, limit];
     const conditions: string[] = [
       "l.organization_id = $1",
       "l.status NOT IN ('CONTRACTED', 'UNQUALIFIED', 'LOST')",
