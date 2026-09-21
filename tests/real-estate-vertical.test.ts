@@ -602,7 +602,7 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       const clinicUnit = await createUnit(orgAContext, {
         projectId: commercialProject.id,
         unitNumber: "CL-201",
-        usageType: "COMMERCIAL",
+        usageType: "MEDICAL",
         unitType: "CLINIC",
         modelName: "Executive Clinic",
         floor: "2nd Floor",
@@ -611,7 +611,7 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
         currency: "EGP",
       });
 
-      expect(clinicUnit.usage_type).toBe("COMMERCIAL");
+      expect(clinicUnit.usage_type).toBe("MEDICAL");
       expect(clinicUnit.unit_type).toBe("CLINIC");
       expect(clinicUnit.model_name).toBe("Executive Clinic");
       expect(clinicUnit.floor).toBe("2nd Floor");
@@ -645,12 +645,12 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       // 4. Test Read Models: listUnitsInventory with usageType and unitType filters
       const clinicInventory = await listUnitsInventory(orgAContext, {
         projectId: commercialProject.id,
-        usageType: "COMMERCIAL",
+        usageType: "MEDICAL",
         unitType: "CLINIC",
       });
       expect(clinicInventory.totalCount).toBe(1);
       expect(clinicInventory.units[0]?.unit_number).toBe("CL-201");
-      expect(clinicInventory.units[0]?.usage_type).toBe("COMMERCIAL");
+      expect(clinicInventory.units[0]?.usage_type).toBe("MEDICAL");
       expect(clinicInventory.units[0]?.unit_type).toBe("CLINIC");
       expect(clinicInventory.units[0]?.model_name).toBe("Executive Clinic");
       expect(clinicInventory.units[0]?.floor).toBe("2nd Floor");
@@ -675,7 +675,7 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       const interest1 = await addLeadInterest(orgAContext, {
         leadId: clinicBuyer.id,
         projectId: mall!.id,
-        usageType: "COMMERCIAL",
+        usageType: "MEDICAL",
         unitType: "CLINIC",
         budgetMin: 3000000,
         budgetMax: 4000000,
@@ -688,11 +688,22 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       expect(interest1.id).toBeDefined();
       expect(interest1.lead_id).toBe(clinicBuyer.id);
       expect(interest1.project_id).toBe(mall!.id);
-      expect(interest1.usage_type).toBe("COMMERCIAL");
+      expect(interest1.usage_type).toBe("MEDICAL");
       expect(interest1.unit_type).toBe("CLINIC");
       expect(Number(interest1.budget_min)).toBe(3000000);
       expect(Number(interest1.budget_max)).toBe(4000000);
       expect(interest1.is_primary).toBe(true);
+
+      await expect(
+        addLeadInterest(orgAContext, {
+          leadId: clinicBuyer.id,
+          usageType: "COMMERCIAL",
+          unitType: "CLINIC",
+          isPrimary: false,
+        }),
+      ).rejects.toThrow(
+        "Usage type 'COMMERCIAL' conflicts with unit type 'CLINIC'",
+      );
 
       // 2. Add Secondary Property Interest (Wishlist 1:N)
       const interest2 = await addLeadInterest(orgAContext, {
