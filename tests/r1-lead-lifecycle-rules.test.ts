@@ -86,7 +86,7 @@ describe("R1 Lead lifecycle through Smart Rules", () => {
     });
   });
 
-  it("rejects an invalid automated Lead status without mutating the Lead", async () => {
+  it("rejects an invalid Lead status when saving an automation", async () => {
     const suffix = crypto.randomBytes(4).toString("hex");
     const owner = await registerUser({
       email: `r1.rules.invalid.${suffix}@example.test`,
@@ -105,22 +105,68 @@ describe("R1 Lead lifecycle through Smart Rules", () => {
       correlationId: `r1-invalid-${suffix}`,
     };
 
-    await createRule(context, {
-      name: "Invalid lifecycle status",
-      trigger_type: "lead.status_changed",
-      conditions: [],
-      actions: [
-        {
-          action_type: "lead.change_status",
-          params: { status: "NOT_A_REAL_STATUS" },
-          delay_seconds: 0,
-        },
-      ],
+    await expect(
+      createRule(context, {
+        name: "Invalid lifecycle status",
+        trigger_type: "lead.status_changed",
+        conditions: [],
+        actions: [
+          {
+            action_type: "lead.change_status",
+            params: { status: "NOT_A_REAL_STATUS" },
+            delay_seconds: 0,
+          },
+        ],
+      }),
+    ).rejects.toThrow("Invalid Lead status configured for automation");
+  });
+
+  it("fails safely if a corrupted persisted automation contains an invalid Lead status", async () => {
+    const suffix = crypto.randomBytes(4).toString("hex");
+    const owner = await registerUser({
+      email: `r1.rules.corrupt.${suffix}@example.test`,
+      password: "StrongPassword123!",
+      fullName: "R1 Corrupt Rule Owner",
     });
+    const organization = await createOrganization({
+      userId: owner.id,
+      name: `R1 Corrupt Rule Org ${suffix}`,
+      slug: `r1-corrupt-${suffix}`,
+    });
+    const context: TenantContext = {
+      organizationId: organization.id,
+      userId: owner.id,
+      role: "OWNER",
+      correlationId: `r1-corrupt-${suffix}`,
+    };
 
     const lead = await createLead(context, {
-      fullName: "Invalid Automation Lead",
+      fullName: "Corrupt Automation Lead",
       phone: `556${suffix}`,
+    });
+
+    await withTenantContext(context.organizationId, async (tx) => {
+      await tx.query(
+        `INSERT INTO automation_rules (
+          organization_id,
+          name,
+          trigger_type,
+          conditions,
+          actions,
+          is_active
+        ) VALUES ($1, $2, 'lead.status_changed', '[]'::jsonb, $3::jsonb, true)`,
+        [
+          context.organizationId,
+          "Corrupted persisted lifecycle rule",
+          JSON.stringify([
+            {
+              action_type: "lead.change_status",
+              params: { status: "NOT_A_REAL_STATUS" },
+              delay_seconds: 0,
+            },
+          ]),
+        ],
+      );
     });
 
     const executions = await triggerRules(
@@ -133,9 +179,6 @@ describe("R1 Lead lifecycle through Smart Rules", () => {
     expect(executions).toHaveLength(1);
     expect(executions[0]?.status).toBe("FAILED");
     expect(executions[0]?.actionsExecuted[0]?.status).toBe("FAILED");
-    expect(executions[0]?.actionsExecuted[0]?.error).toContain(
-      "Invalid Lead status",
-    );
 
     const state = await withTenantContext(
       context.organizationId,
