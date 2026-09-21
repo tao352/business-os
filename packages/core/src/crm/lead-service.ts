@@ -14,7 +14,7 @@ import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js"
 import { recordAuditLog } from "./audit-helper.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 import {
-  recordInitialLeadStageInTransaction,
+  createLeadInTransaction,
   transitionLeadStageInTransaction,
 } from "./lead-lifecycle.js";
 
@@ -80,27 +80,17 @@ export async function createLead(
         ? validateCustomData(defsRes.rows, input.customData || {})
         : input.customData || {};
 
-    const res = await tx.query(
-      `INSERT INTO leads (
-        organization_id, full_name, phone, email, status,
-        assigned_user_id, campaign_id, source,
-        custom_data
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *`,
-      [
-        context.organizationId,
-        input.fullName.trim(),
-        input.phone.trim(),
-        input.email?.trim() || null,
-        status,
-        input.assignedUserId || null,
-        input.campaignId || null,
-        source,
-        JSON.stringify(validatedCustomData),
-      ],
-    );
-
-    const lead = res.rows[0];
+    const lead = await createLeadInTransaction(tx, context, {
+      fullName: input.fullName,
+      phone: input.phone,
+      email: input.email,
+      status,
+      assignedUserId: input.assignedUserId,
+      campaignId: input.campaignId,
+      source,
+      customData: validatedCustomData,
+      initialStageMetadata: { source: "lead_created" },
+    });
 
     // 1. Immutable Audit Log
     await recordAuditLog(tx, context, {
@@ -123,10 +113,6 @@ export async function createLead(
         JSON.stringify({ source, campaignId: input.campaignId }),
       ],
     );
-
-    await recordInitialLeadStageInTransaction(tx, context, lead.id, status, {
-      source: "lead_created",
-    });
 
     return lead;
   });
