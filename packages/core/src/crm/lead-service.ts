@@ -240,11 +240,8 @@ export async function updateLeadStatus(
       },
     );
 
-    const lead = transition.changed
-      ? null
-      : transition.lead;
     if (!transition.changed) {
-      return lead;
+      return transition.lead;
     }
 
     const oldStatus = transition.previousStatus;
@@ -258,8 +255,8 @@ export async function updateLeadStatus(
       entityId: leadId,
       beforeState: {
         status: oldStatus,
-        lost_reason_code: lead.lost_reason_code ?? null,
-        closed_at: lead.closed_at ?? null,
+        lost_reason_code: transition.previousLead.lost_reason_code ?? null,
+        closed_at: transition.previousLead.closed_at ?? null,
       },
       afterState: {
         status: newStatus,
