@@ -1,5 +1,5 @@
 import React from "react";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import {
   canAccessIndividualLeadRecords,
   listLeadFollowUpHealth,
@@ -11,7 +11,7 @@ export default async function SalesCommandCenterPage() {
   const context = await requireTenantContext();
 
   if (!canAccessIndividualLeadRecords(context)) {
-    redirect("/app");
+    notFound();
   }
 
   const [session, rows] = await Promise.all([
