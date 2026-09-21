@@ -1,10 +1,11 @@
 import type { TenantContext, TenantRole } from "@business-os/types";
-import { can } from "./checker.js";
+import { can, canAccessIndividualLeadRecords } from "./checker.js";
 
 export interface UiCapabilities {
   canCreateLead: boolean;
   canExportLeads: boolean;
   canUpdateAllLeads: boolean;
+  canReadSalesCommandCenter: boolean;
   canReadProjects: boolean;
   canCreateProject: boolean;
   canUpdateProject: boolean;
@@ -42,6 +43,7 @@ export function getUiCapabilities(
     canCreateLead: can(ctx, "create", "lead"),
     canExportLeads: can(ctx, "export", "lead"),
     canUpdateAllLeads: can(ctx, "update_all", "lead"),
+    canReadSalesCommandCenter: canAccessIndividualLeadRecords(ctx),
     canReadProjects: can(ctx, "read", "project"),
     canCreateProject: can(ctx, "create", "project"),
     canUpdateProject: can(ctx, "update", "project"),
