@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { LeadStatus } from "@business-os/types";
+import type { LeadClosureReason, LeadStatus } from "@business-os/types";
 import {
   createLead,
   updateLeadStatus,
@@ -77,11 +77,18 @@ export async function createLeadAction(
 export async function updateLeadStatusAction(
   leadId: string,
   newStatus: LeadStatus,
+  lostReasonCode?: LeadClosureReason,
+  lostReasonNotes?: string,
 ): Promise<ActionResult> {
   try {
     const context = await requireTenantContext();
 
-    const parsed = updateLeadStatusSchema.safeParse({ leadId, newStatus });
+    const parsed = updateLeadStatusSchema.safeParse({
+      leadId,
+      newStatus,
+      lostReasonCode,
+      lostReasonNotes,
+    });
     if (!parsed.success) {
       return { success: false, error: parsed.error.issues[0].message };
     }
@@ -90,6 +97,11 @@ export async function updateLeadStatusAction(
       context,
       parsed.data.leadId,
       parsed.data.newStatus,
+      {
+        lostReasonCode: parsed.data.lostReasonCode ?? undefined,
+        lostReasonNotes: parsed.data.lostReasonNotes ?? undefined,
+        metadata: { source: "web_status_dialog" },
+      },
     );
 
     revalidatePath("/app");
