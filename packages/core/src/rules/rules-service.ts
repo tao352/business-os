@@ -14,7 +14,9 @@ function assertRuleActionsValid(actions: RuleAction[]): void {
   for (const action of actions) {
     if (action.action_type !== "lead.change_status") continue;
 
-    const parsed = LeadStatusSchema.safeParse(action.params.status);
+    const parsed = LeadStatusSchema.safeParse(
+      action.params.status ?? "CONTACTED",
+    );
     if (!parsed.success) {
       throw new Error(
         `Invalid Lead status configured for automation: '${String(
