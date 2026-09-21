@@ -70,7 +70,7 @@ describe("Phase 23A Sales Execution & Anti-Lead-Leakage", () => {
     };
   });
 
-  it("records a structured stage history and closure reason, then clears closure data on reactivation", async () => {
+  it("records closure history and clears it on reactivation", async () => {
     const lead = await createLead(ownerContext, {
       fullName: "Pipeline History Lead",
       phone: "+201000000001",
@@ -129,7 +129,7 @@ describe("Phase 23A Sales Execution & Anti-Lead-Leakage", () => {
     expect(unchanged.status).toBe("NEW");
   });
 
-  it("uses the earliest open task as the single source of truth for Next Action health", async () => {
+  it("uses the earliest open task as the Lead next action", async () => {
     const lead = await createLead(ownerContext, {
       fullName: "Follow Up Health Lead",
       phone: "+201000000003",
@@ -157,7 +157,7 @@ describe("Phase 23A Sales Execution & Anti-Lead-Leakage", () => {
     expect(overdue?.nextActionTitle).toBe("Call overdue lead");
   });
 
-  it("keeps anti-leakage views and stage changes scoped to the assigned salesperson", async () => {
+  it("enforces salesperson scope for health and stage history", async () => {
     const leadA = await createLead(ownerContext, {
       fullName: "Sales A Private Lead",
       phone: "+201000000004",
