@@ -10,6 +10,10 @@ import {
 import { assertPermission } from "../permissions/checker.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
+import {
+  inferUsageTypeFromUnitType,
+  isUsageTypeCompatible,
+} from "./unit-taxonomy.js";
 
 export interface CreateUnitInput {
   projectId: string;
@@ -76,7 +80,19 @@ export async function createUnit(
         ? validateCustomData(defsRes.rows, input.customData ?? {})
         : (input.customData ?? {});
 
-    // 2. Insert unit
+    // 2. Resolve and validate the authoritative unit classification.
+    const unitType = input.unitType ?? "RETAIL_STORE";
+    const inferredUsageType = inferUsageTypeFromUnitType(unitType);
+    const usageType =
+      input.usageType ?? inferredUsageType ?? ("COMMERCIAL" as UnitUsageType);
+
+    if (!isUsageTypeCompatible(unitType, usageType)) {
+      throw new Error(
+        `Usage type '${usageType}' conflicts with unit type '${unitType}'`,
+      );
+    }
+
+    // 3. Insert unit
     const insertSql = `
       INSERT INTO units (
         organization_id,
@@ -101,8 +117,8 @@ export async function createUnit(
       context.organizationId,
       input.projectId,
       input.unitNumber.trim(),
-      input.usageType ?? "COMMERCIAL",
-      input.unitType ?? "RETAIL_STORE",
+      usageType,
+      unitType,
       input.modelName?.trim() ?? null,
       input.floor?.trim() ?? null,
       input.grossArea,
@@ -119,7 +135,7 @@ export async function createUnit(
       throw new Error("Failed to create unit");
     }
 
-    // 3. Audit Log
+    // 4. Audit Log
     await recordAuditLog(client, context, {
       action: "CREATE",
       entityType: "unit",
@@ -237,6 +253,20 @@ export async function updateUnit(
       throw new Error(`Unit '${unitId}' not found`);
     }
 
+    const nextUnitType = input.unitType ?? existing.unit_type;
+    const inferredNextUsage = inferUsageTypeFromUnitType(nextUnitType);
+    const nextUsageType =
+      input.usageType ??
+      (input.unitType !== undefined && inferredNextUsage
+        ? inferredNextUsage
+        : existing.usage_type);
+
+    if (!isUsageTypeCompatible(nextUnitType, nextUsageType)) {
+      throw new Error(
+        `Usage type '${nextUsageType}' conflicts with unit type '${nextUnitType}'`,
+      );
+    }
+
     const updates: string[] = ["updated_at = NOW()"];
     const params: unknown[] = [unitId];
     let idx = 2;
@@ -245,13 +275,16 @@ export async function updateUnit(
       updates.push(`unit_number = $${idx++}`);
       params.push(input.unitNumber.trim());
     }
-    if (input.usageType !== undefined) {
+    if (
+      input.usageType !== undefined ||
+      (input.unitType !== undefined && nextUsageType !== existing.usage_type)
+    ) {
       updates.push(`usage_type = $${idx++}`);
-      params.push(input.usageType);
+      params.push(nextUsageType);
     }
     if (input.unitType !== undefined) {
       updates.push(`unit_type = $${idx++}`);
-      params.push(input.unitType);
+      params.push(nextUnitType);
     }
     if (input.modelName !== undefined) {
       updates.push(`model_name = $${idx++}`);

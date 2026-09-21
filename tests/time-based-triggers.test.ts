@@ -110,7 +110,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
     const unit1 = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "V-201",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 25000000,
       grossArea: 350,
     });
@@ -118,7 +118,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
     const unit2 = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "V-202",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 30000000,
       grossArea: 420,
     });

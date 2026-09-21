@@ -280,8 +280,14 @@ describe("Phase 21 Stabilization: Core Read Models & PII Privacy Protection Suit
           [orgId],
         );
         await tx.query(
-          `INSERT INTO units (organization_id, project_id, unit_number, unit_type, gross_area, price, status)
-           VALUES ($1, $2, 'PH-101', 'Villa', 320, 15000000, 'AVAILABLE')`,
+          `INSERT INTO units (
+             organization_id, project_id, unit_number, usage_type, unit_type,
+             gross_area, price, status
+           )
+           VALUES (
+             $1, $2, 'PH-101', 'RESIDENTIAL', 'STANDALONE_VILLA',
+             320, 15000000, 'AVAILABLE'
+           )`,
           [orgId, pRes.rows[0].id],
         );
       });

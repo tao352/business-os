@@ -5,6 +5,7 @@ import {
   getProject,
   listProjects,
   createUnit,
+  updateUnit,
   getUnit,
   listUnits,
   scheduleVisit,
@@ -391,6 +392,44 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       });
       expect(units).toHaveLength(1);
       expect(units[0]?.unit_number).toBe("V-102");
+    });
+
+    it("should infer usage type from unit type and reject contradictory classifications", async () => {
+      const inferred = await createUnit(orgAContext, {
+        projectId,
+        unitNumber: "APT-INFER-01",
+        unitType: "APARTMENT",
+        grossArea: 135,
+        price: 3200000,
+      });
+      expect(inferred.usage_type).toBe("RESIDENTIAL");
+
+      const reclassified = await updateUnit(orgAContext, inferred.id, {
+        unitType: "OFFICE",
+      });
+      expect(reclassified.unit_type).toBe("OFFICE");
+      expect(reclassified.usage_type).toBe("ADMINISTRATIVE");
+
+      await expect(
+        createUnit(orgAContext, {
+          projectId,
+          unitNumber: "APT-BAD-CLASSIFICATION",
+          usageType: "COMMERCIAL",
+          unitType: "APARTMENT",
+          grossArea: 120,
+          price: 3000000,
+        }),
+      ).rejects.toThrow(
+        "Usage type 'COMMERCIAL' conflicts with unit type 'APARTMENT'",
+      );
+
+      await expect(
+        updateUnit(orgAContext, inferred.id, {
+          usageType: "MEDICAL",
+        }),
+      ).rejects.toThrow(
+        "Usage type 'MEDICAL' conflicts with unit type 'OFFICE'",
+      );
     });
 
     it("should enforce unique unit_number constraint within the same project", async () => {
