@@ -61,7 +61,7 @@ export function LeadInterestCard({
 
   const [projectId, setProjectId] = useState("");
   const [usageType, setUsageType] = useState<UnitUsageType>("COMMERCIAL");
-  const [unitType, setUnitType] = useState<UnitType>("CLINIC");
+  const [unitType, setUnitType] = useState<UnitType>("RETAIL_STORE");
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
   const [areaMin, setAreaMin] = useState("");
