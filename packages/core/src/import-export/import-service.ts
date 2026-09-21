@@ -9,11 +9,13 @@ import type {
   ImportExecutionResult,
   ImportRowError,
   CustomFieldDefinition,
+  LeadStatus,
 } from "@business-os/types";
 import { parseCsv } from "./csv-parser.js";
 import { autoDetectColumnMapping } from "./column-matcher.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { recordInitialLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 import { assertPermission } from "../permissions/checker.js";
 import {
   inferUsageTypeFromUnitType,
@@ -395,9 +397,13 @@ export async function executeImport(
         }
 
         // INSERT
-        await client.query(
+        const insertedLeadRes = await client.query<{
+          id: string;
+          status: LeadStatus;
+        }>(
           `INSERT INTO leads (organization_id, full_name, phone, email, status, source, custom_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, status`,
           [
             context.organizationId,
             fullName,
@@ -408,6 +414,19 @@ export async function executeImport(
             JSON.stringify(customData),
           ],
         );
+
+        const insertedLead = insertedLeadRes.rows[0]!;
+        await recordInitialLeadStageInTransaction(
+          client,
+          context,
+          insertedLead.id,
+          insertedLead.status,
+          {
+            source: "csv_import",
+            rowNumber: rowNum,
+          },
+        );
+
         importedCount++;
       } else if (entityType === "units") {
         if (!options.projectId) {
