@@ -1,5 +1,10 @@
 import { withTenantContext } from "@business-os/database";
-import type { TenantContext, LeadStatus } from "@business-os/types";
+import type {
+  TenantContext,
+  LeadStatus,
+  LeadClosureReason,
+  LeadStageHistory,
+} from "@business-os/types";
 import {
   assertPermission,
   can,
@@ -28,6 +33,60 @@ export interface ListLeadsFilters {
   limit?: number;
   offset?: number;
 }
+
+export interface UpdateLeadStatusOptions {
+  lostReasonCode?: LeadClosureReason;
+  lostReasonNotes?: string | null;
+  metadata?: Record<string, unknown>;
+  enforceTransition?: boolean;
+}
+
+const ALLOWED_LEAD_STATUS_TRANSITIONS: Record<
+  LeadStatus,
+  readonly LeadStatus[]
+> = {
+  NEW: [
+    "CONTACTED",
+    "QUALIFIED",
+    "MEETING_SCHEDULED",
+    "SITE_VISIT_BOOKED",
+    "UNQUALIFIED",
+    "LOST",
+  ],
+  CONTACTED: [
+    "QUALIFIED",
+    "MEETING_SCHEDULED",
+    "SITE_VISIT_BOOKED",
+    "UNQUALIFIED",
+    "LOST",
+  ],
+  QUALIFIED: [
+    "CONTACTED",
+    "MEETING_SCHEDULED",
+    "SITE_VISIT_BOOKED",
+    "RESERVED",
+    "UNQUALIFIED",
+    "LOST",
+  ],
+  MEETING_SCHEDULED: [
+    "CONTACTED",
+    "QUALIFIED",
+    "SITE_VISIT_BOOKED",
+    "UNQUALIFIED",
+    "LOST",
+  ],
+  SITE_VISIT_BOOKED: [
+    "CONTACTED",
+    "QUALIFIED",
+    "RESERVED",
+    "UNQUALIFIED",
+    "LOST",
+  ],
+  RESERVED: ["QUALIFIED", "SITE_VISIT_BOOKED", "CONTRACTED", "LOST"],
+  CONTRACTED: [],
+  UNQUALIFIED: ["CONTACTED", "QUALIFIED"],
+  LOST: ["CONTACTED", "QUALIFIED"],
+};
 
 /**
  * Creates a new lead with custom field validation, audit logging and an initial activity note.
@@ -105,6 +164,24 @@ export async function createLead(
         context.userId,
         `Lead created via ${source}`,
         JSON.stringify({ source, campaignId: input.campaignId }),
+      ],
+    );
+
+    await tx.query(
+      `INSERT INTO lead_stage_history (
+        organization_id,
+        lead_id,
+        from_status,
+        to_status,
+        changed_by_user_id,
+        metadata
+      ) VALUES ($1, $2, NULL, $3, $4, $5)`,
+      [
+        context.organizationId,
+        lead.id,
+        status,
+        context.userId,
+        JSON.stringify({ source: "lead_created" }),
       ],
     );
 
@@ -197,11 +274,15 @@ export async function updateLeadStatus(
   context: TenantContext,
   leadId: string,
   newStatus: LeadStatus,
+  options: UpdateLeadStatusOptions = {},
 ) {
+  assertCanAccessIndividualLeadRecords(context);
+
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query("SELECT * FROM leads WHERE id = $1", [
-      leadId,
-    ]);
+    const existing = await tx.query(
+      "SELECT * FROM leads WHERE organization_id = $1 AND id = $2 FOR UPDATE",
+      [context.organizationId, leadId],
+    );
     if (existing.rows.length === 0) {
       throw new Error("Lead not found");
     }
@@ -209,30 +290,89 @@ export async function updateLeadStatus(
     const lead = existing.rows[0];
     assertPermission(context, "update", "lead", lead);
 
-    const oldStatus = lead.status;
+    const oldStatus = lead.status as LeadStatus;
     if (oldStatus === newStatus) {
       return lead;
     }
 
+    const enforceTransition = options.enforceTransition ?? true;
+    if (
+      enforceTransition &&
+      !ALLOWED_LEAD_STATUS_TRANSITIONS[oldStatus].includes(newStatus)
+    ) {
+      throw new Error(
+        `Invalid lead pipeline transition from '${oldStatus}' to '${newStatus}'`,
+      );
+    }
+
+    const isClosing = newStatus === "LOST" || newStatus === "UNQUALIFIED";
+    const reasonCode: LeadClosureReason | null = isClosing
+      ? (options.lostReasonCode ?? "UNSPECIFIED")
+      : null;
+    const reasonNotes = isClosing
+      ? (options.lostReasonNotes?.trim() || null)
+      : null;
+
     const res = await tx.query(
       `UPDATE leads
-       SET status = $1, updated_at = NOW()
-       WHERE id = $2
+       SET status = $1,
+           pipeline_stage_entered_at = NOW(),
+           lost_reason_code = $2,
+           lost_reason_notes = $3,
+           closed_at = CASE WHEN $4::boolean THEN NOW() ELSE NULL END,
+           updated_at = NOW()
+       WHERE organization_id = $5 AND id = $6
        RETURNING *`,
-      [newStatus, leadId],
+      [
+        newStatus,
+        reasonCode,
+        reasonNotes,
+        isClosing,
+        context.organizationId,
+        leadId,
+      ],
     );
     const updatedLead = res.rows[0];
 
-    // 1. Audit Log
+    await tx.query(
+      `INSERT INTO lead_stage_history (
+        organization_id,
+        lead_id,
+        from_status,
+        to_status,
+        changed_by_user_id,
+        reason_code,
+        reason_notes,
+        metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        context.organizationId,
+        leadId,
+        oldStatus,
+        newStatus,
+        context.userId,
+        reasonCode,
+        reasonNotes,
+        JSON.stringify(options.metadata ?? { source: "manual_status_change" }),
+      ],
+    );
+
     await recordAuditLog(tx, context, {
       action: "UPDATE",
       entityType: "lead",
       entityId: leadId,
-      beforeState: { status: oldStatus },
-      afterState: { status: newStatus },
+      beforeState: {
+        status: oldStatus,
+        lost_reason_code: lead.lost_reason_code ?? null,
+        closed_at: lead.closed_at ?? null,
+      },
+      afterState: {
+        status: newStatus,
+        lost_reason_code: reasonCode,
+        closed_at: updatedLead.closed_at ?? null,
+      },
     });
 
-    // 2. Timeline Activity
     await tx.query(
       `INSERT INTO activities (
         organization_id, lead_id, user_id, activity_type, summary, details
@@ -242,11 +382,44 @@ export async function updateLeadStatus(
         leadId,
         context.userId,
         `Status changed from ${oldStatus} to ${newStatus}`,
-        JSON.stringify({ oldStatus, newStatus }),
+        JSON.stringify({
+          oldStatus,
+          newStatus,
+          reasonCode,
+          reasonNotes,
+        }),
       ],
     );
 
     return updatedLead;
+  });
+}
+
+export async function listLeadStageHistory(
+  context: TenantContext,
+  leadId: string,
+): Promise<LeadStageHistory[]> {
+  assertCanAccessIndividualLeadRecords(context);
+
+  return await withTenantContext(context.organizationId, async (tx) => {
+    const leadRes = await tx.query(
+      "SELECT * FROM leads WHERE organization_id = $1 AND id = $2",
+      [context.organizationId, leadId],
+    );
+    const lead = leadRes.rows[0];
+    if (!lead) {
+      throw new Error("Lead not found");
+    }
+    assertPermission(context, "read", "lead", lead);
+
+    const history = await tx.query<LeadStageHistory>(
+      `SELECT *
+       FROM lead_stage_history
+       WHERE organization_id = $1 AND lead_id = $2
+       ORDER BY created_at DESC`,
+      [context.organizationId, leadId],
+    );
+    return history.rows;
   });
 }
 
