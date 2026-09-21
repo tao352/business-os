@@ -122,10 +122,11 @@ describe("RBAC Permission Engine", () => {
       expect(can(mktUserCtx, "export", "lead")).toBe(false);
     });
 
-    it("FINANCE can manage contracts and export financial reports", () => {
+    it("FINANCE can manage contracts without owning sales opportunities", () => {
       const financeCtx = makeContext("FINANCE");
       expect(can(financeCtx, "manage", "contract")).toBe(true);
       expect(can(financeCtx, "export", "contract")).toBe(true);
+      expect(can(financeCtx, "create", "opportunity")).toBe(false);
       expect(can(financeCtx, "manage", "smart_rule")).toBe(false);
     });
   });
