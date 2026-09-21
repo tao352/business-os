@@ -216,7 +216,9 @@ export async function updateOpportunityStage(
       throw new Error("Opportunity not found");
     }
 
-    assertPermission(context, "update", "opportunity", opportunity);
+    assertPermission(context, "update", "opportunity", {
+      assigned_user_id: opportunity.assigned_user_id,
+    });
     assertCanAccessIndividualLeadRecords(context, {
       assigned_user_id: opportunity.lead_assigned_user_id,
     });
