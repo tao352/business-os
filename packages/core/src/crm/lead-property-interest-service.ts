@@ -12,6 +12,7 @@ import {
   assertCanAccessIndividualLeadRecords,
 } from "../permissions/checker.js";
 import { recordAuditLog } from "./audit-helper.js";
+import { isUsageTypeCompatible } from "../real-estate/unit-taxonomy.js";
 
 export interface CreateLeadInterestInput {
   leadId: string;
@@ -86,6 +87,16 @@ export async function addLeadInterest(
           `Specific unit '${input.specificUnitId}' does not belong to project '${input.projectId}'`,
         );
       }
+    }
+
+    if (
+      input.unitType &&
+      input.usageType &&
+      !isUsageTypeCompatible(input.unitType, input.usageType)
+    ) {
+      throw new Error(
+        `Usage type '${input.usageType}' conflicts with unit type '${input.unitType}'`,
+      );
     }
 
     const isPrimary = input.isPrimary ?? true;
@@ -321,6 +332,21 @@ export async function updateLeadInterest(
           `Specific unit '${effectiveUnitId}' does not belong to project '${effectiveProjectId}'`,
         );
       }
+    }
+
+    const effectiveUsageType =
+      input.usageType !== undefined ? input.usageType : existing.usage_type;
+    const effectiveUnitType =
+      input.unitType !== undefined ? input.unitType : existing.unit_type;
+
+    if (
+      effectiveUnitType &&
+      effectiveUsageType &&
+      !isUsageTypeCompatible(effectiveUnitType, effectiveUsageType)
+    ) {
+      throw new Error(
+        `Usage type '${effectiveUsageType}' conflicts with unit type '${effectiveUnitType}'`,
+      );
     }
 
     const nextStatus = input.status ?? existing.status;
