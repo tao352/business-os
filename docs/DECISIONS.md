@@ -417,3 +417,61 @@
   6. Only customer-contact activities such as calls, WhatsApp, email, and meetings update `last_contacted_at`; internal notes do not.
   7. Higher-level sales execution logic lives in the dedicated `sales` module rather than expanding CRM entity services indefinitely.
 - **Rationale:** This creates a single source of truth for follow-up work, makes pipeline leakage measurable, preserves tenant isolation, and gives future SLA, automation, analytics, and AI features a modular sales boundary.
+---
+
+### ADR-025: Sales Domain Ownership — Lead Is the Person, Opportunity Is the Commercial Deal
+
+- **Date:** 2026-09-21
+- **Status:** APPROVED [MIGRATION PLANNED]
+- **Context:**
+  Phase 23 established reliable Lead pipeline history, but the current model still has two partially overlapping commercial pipelines:
+  1. `leads.status` contains relationship/contact states as well as opportunity-specific milestones such as `SITE_VISIT_BOOKED`, `RESERVED`, and `CONTRACTED`.
+  2. `deals.stage` independently represents a commercial opportunity using `DISCOVERY`, `PROPOSAL`, `NEGOTIATION`, `WON`, and `LOST`.
+  3. Executive analytics currently calculate forecast pipeline value from `deals`, while real-estate revenue and operational truth come from Reservations and Contracts. Real-estate Reservation/Contract flows do not currently create a Deal.
+  4. One person can legitimately pursue multiple units or commercial opportunities at the same time, so one Lead status cannot be the long-term authoritative state of every deal.
+
+- **Decision:**
+  1. **Lead = person / customer relationship.**
+     - A Lead represents the human or organization being worked.
+     - Lead lifecycle describes relationship/qualification/contact state.
+     - A Lead may own zero, one, or many Opportunities.
+  2. **Opportunity = commercial deal.**
+     - The existing `deals` concept will evolve into the Sales-domain Opportunity model.
+     - The physical table may remain `deals` during migration for backward compatibility, but new domain APIs and documentation will use the term `Opportunity`.
+     - Opportunity is the authoritative source for forecast pipeline stage and forecast value.
+  3. **Real-estate execution entities remain separate.**
+     - Property Interests describe requirements/wishlists.
+     - Reservation represents a temporary inventory hold.
+     - Contract represents executed commercial truth and realized revenue.
+     - Reservation/Contract are not substitutes for an Opportunity; they are operational evidence attached to an Opportunity.
+  4. **Revenue and forecast value have different authoritative sources.**
+     - Forecast pipeline value = open Opportunities only.
+     - Realized revenue = executed Contracts only.
+     - `WON` and `LOST` Opportunities are excluded from open pipeline value.
+     - Marketing attribution to realized revenue remains Contract-backed.
+  5. **One Lead may have multiple Opportunities.**
+     - Opportunity will be able to reference a Lead and, for the Real Estate vertical, optionally a Property Interest and/or target Unit.
+     - Reservation and Contract will progressively gain Opportunity linkage using additive migrations.
+  6. **Lead opportunity-specific statuses are transitional compatibility states.**
+     - Existing Phase 23 Lead statuses remain supported while the Opportunity migration is performed.
+     - No destructive status removal or historical rewrite will occur.
+     - After Opportunity becomes authoritative, Lead statuses such as `RESERVED` / `CONTRACTED` will no longer be the primary source for pipeline forecasting.
+  7. **Ownership boundary moves to Sales.**
+     - Opportunity services belong in `packages/core/src/sales`, not generic CRM.
+     - CRM remains responsible for Leads, Tasks, Activities, and contact/customer history.
+  8. **Migration must use Expand → Backfill → Dual-read/dual-write where required → Switch reads → Contract.**
+     - Existing `deals` data must remain valid throughout.
+     - No table rename or destructive migration is required in the first slice.
+
+- **Migration Plan:**
+  1. Introduce typed Opportunity contracts/services in the Sales module while preserving compatibility wrappers for existing Deal APIs.
+  2. Add additive Opportunity linkage fields required by Real Estate (`lead_id` remains mandatory; optional interest/unit references as domain-reviewed).
+  3. Add `opportunity_id` to Reservations and Contracts through new migrations, preserving existing rows.
+  4. Backfill Opportunities for existing commercial records where truth can be derived without fabrication.
+  5. Route Reservation/Contract lifecycle changes to the associated Opportunity.
+  6. Switch executive pipeline forecasting to open Opportunities only.
+  7. Keep Contract-backed realized revenue and attribution unchanged.
+  8. Only after successful regression and pilot verification, deprecate opportunity-specific Lead statuses as forecasting inputs.
+
+- **Rationale:**
+  Separating the person from the commercial opportunity prevents contradictory state when one customer pursues multiple deals, gives analytics one authoritative source for forecast value, preserves Contract truth for realized revenue, and creates a reusable Sales domain that can support Real Estate today and additional SaaS verticals later without forcing industry-specific deal state onto the CRM contact model.
