@@ -60,7 +60,16 @@ const UNIT_SYNONYMS: Record<string, string[]> = {
     "شقة رقم",
     "فيلا رقم",
   ],
-  usage_type: ["usage_type", "usage", "use", "classification", "الاستخدام", "استخدام الوحدة", "النشاط", "نوع النشاط"],
+  usage_type: [
+    "usage_type",
+    "usage",
+    "use",
+    "classification",
+    "الاستخدام",
+    "استخدام الوحدة",
+    "النشاط",
+    "نوع النشاط",
+  ],
   unit_type: ["unit_type", "type", "property_type", "نوع الوحدة", "النوع"],
   model_name: ["model_name", "model", "model name", "نموذج", "اسم النموذج"],
   gross_area: [

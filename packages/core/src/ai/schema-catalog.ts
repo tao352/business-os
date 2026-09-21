@@ -1,4 +1,7 @@
-import { detectUnitTypeFromText, detectUsageTypeFromText } from "../real-estate/unit-taxonomy.js";
+import {
+  detectUnitTypeFromText,
+  detectUsageTypeFromText,
+} from "../real-estate/unit-taxonomy.js";
 
 /**
  * Compact schema catalog representing tenant-isolated CRM and Real Estate entities

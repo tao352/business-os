@@ -378,34 +378,49 @@ export async function cancelReservation(
       [context.organizationId, reservationId],
     );
     const hint = hintRes.rows[0];
-    if (!hint) throw new Error(`Reservation '${reservationId}' not found`);
+    if (!hint) {
+      throw new Error(`Reservation '${reservationId}' not found`);
+    }
 
     const unitRes = await client.query<{ id: string; status: string }>(
       `SELECT id, status FROM units WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [context.organizationId, hint.unit_id],
     );
     const unit = unitRes.rows[0];
-    if (!unit) throw new Error(`Unit '${hint.unit_id}' not found`);
+    if (!unit) {
+      throw new Error(`Unit '${hint.unit_id}' not found`);
+    }
 
     const resRes = await client.query<Reservation>(
       `SELECT * FROM reservations WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [context.organizationId, reservationId],
     );
     const existing = resRes.rows[0];
-    if (!existing) throw new Error(`Reservation '${reservationId}' not found`);
-    if (existing.unit_id !== hint.unit_id) throw new Error("Reservation unit changed while acquiring locks; retry");
+    if (!existing) {
+      throw new Error(`Reservation '${reservationId}' not found`);
+    }
+    if (existing.unit_id !== hint.unit_id) {
+      throw new Error("Reservation unit changed while acquiring locks; retry");
+    }
 
-    const leadRes = await client.query<{ id: string; assigned_user_id: string | null }>(
+    const leadRes = await client.query<{
+      id: string;
+      assigned_user_id: string | null;
+    }>(
       `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
       [context.organizationId, existing.lead_id],
     );
     const lead = leadRes.rows[0];
-    if (!lead) throw new Error(`Lead '${existing.lead_id}' not found`);
+    if (!lead) {
+      throw new Error(`Lead '${existing.lead_id}' not found`);
+    }
     assertCanAccessIndividualLeadRecords(context, lead);
     assertPermission(context, "update", "lead", lead);
 
-    if (["CANCELLED","CONVERTED","EXPIRED"].includes(existing.status)) {
-      throw new Error(`Cannot cancel reservation with status '${existing.status}'`);
+    if (["CANCELLED", "CONVERTED", "EXPIRED"].includes(existing.status)) {
+      throw new Error(
+        `Cannot cancel reservation with status '${existing.status}'`,
+      );
     }
 
     const updateRes = await client.query<Reservation>(
@@ -414,7 +429,9 @@ export async function cancelReservation(
       [reason ? `Cancelled: ${reason}` : null, reservationId],
     );
     const updated = updateRes.rows[0];
-    if (!updated) throw new Error("Failed to cancel reservation");
+    if (!updated) {
+      throw new Error("Failed to cancel reservation");
+    }
 
     const restoredToAvailable = unit.status === "RESERVED";
     if (restoredToAvailable) {
@@ -427,15 +444,25 @@ export async function cancelReservation(
     await client.query(
       `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
        VALUES ($1, $2, $3, 'NOTE', $4, $5)`,
-      [context.organizationId, existing.lead_id, context.userId,
-       restoredToAvailable ? "Reservation cancelled. Unit returned to available inventory." : "Reservation cancelled. Unit status was not reopened.",
-       JSON.stringify({ reservationId, reason, restoredToAvailable })],
+      [
+        context.organizationId,
+        existing.lead_id,
+        context.userId,
+        restoredToAvailable
+          ? "Reservation cancelled. Unit returned to available inventory."
+          : "Reservation cancelled. Unit status was not reopened.",
+        JSON.stringify({ reservationId, reason, restoredToAvailable }),
+      ],
     );
 
     await recordAuditLog(client, context, {
-      action: "UPDATE", entityType: "reservation", entityId: reservationId,
-      beforeState: existing, afterState: updated,
+      action: "UPDATE",
+      entityType: "reservation",
+      entityId: reservationId,
+      beforeState: existing,
+      afterState: updated,
     });
+
     return updated;
   });
 }
@@ -448,12 +475,17 @@ export async function listReservations(
 
   return await withTenantContext(context.organizationId, async (client) => {
     if (filters.leadId) {
-      const leadRes = await client.query<{ id: string; assigned_user_id: string | null }>(
+      const leadRes = await client.query<{
+        id: string;
+        assigned_user_id: string | null;
+      }>(
         `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
         [context.organizationId, filters.leadId],
       );
       const lead = leadRes.rows[0];
-      if (!lead) return [];
+      if (!lead) {
+        return [];
+      }
       assertCanAccessIndividualLeadRecords(context, lead);
       assertPermission(context, "read", "lead", lead);
     }
@@ -461,13 +493,23 @@ export async function listReservations(
     const whereClauses: string[] = ["r.organization_id = $1"];
     const params: unknown[] = [context.organizationId];
     let idx = 2;
+
     if (context.role === "SALESPERSON") {
       whereClauses.push(`l.assigned_user_id = $${idx++}`);
       params.push(context.userId);
     }
-    if (filters.leadId) { whereClauses.push(`r.lead_id = $${idx++}`); params.push(filters.leadId); }
-    if (filters.unitId) { whereClauses.push(`r.unit_id = $${idx++}`); params.push(filters.unitId); }
-    if (filters.status) { whereClauses.push(`r.status = $${idx++}`); params.push(filters.status); }
+    if (filters.leadId) {
+      whereClauses.push(`r.lead_id = $${idx++}`);
+      params.push(filters.leadId);
+    }
+    if (filters.unitId) {
+      whereClauses.push(`r.unit_id = $${idx++}`);
+      params.push(filters.unitId);
+    }
+    if (filters.status) {
+      whereClauses.push(`r.status = $${idx++}`);
+      params.push(filters.status);
+    }
 
     const res = await client.query<Reservation>(
       `SELECT r.* FROM reservations r

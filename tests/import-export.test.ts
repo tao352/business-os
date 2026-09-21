@@ -75,7 +75,14 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       expect(mapping["البريد الالكتروني"]).toBe("email");
       expect(mapping["الميزانية"]).toBe("budget");
 
-      const unitHeaders = ["رقم الوحدة", "نوع الوحدة", "الاستخدام", "نموذج", "المساحة", "السعر"];
+      const unitHeaders = [
+        "رقم الوحدة",
+        "نوع الوحدة",
+        "الاستخدام",
+        "نموذج",
+        "المساحة",
+        "السعر",
+      ];
       const unitMapping = autoDetectColumnMapping("units", unitHeaders);
       expect(unitMapping["رقم الوحدة"]).toBe("unit_number");
       expect(unitMapping["نوع الوحدة"]).toBe("unit_type");
@@ -257,13 +264,25 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
     });
 
     it("should reject unknown or contradictory unit taxonomy instead of silently importing it", async () => {
-      const unknown = "Unit #,Type,Area,Price\nU-BAD,Something Ambiguous,100,1500000";
-      const unknownDryRun = await validateAndDryRunImport(orgAContext, "units", unknown, { projectId });
+      const unknown =
+        "Unit #,Type,Area,Price\nU-BAD,Something Ambiguous,100,1500000";
+      const unknownDryRun = await validateAndDryRunImport(
+        orgAContext,
+        "units",
+        unknown,
+        { projectId },
+      );
       expect(unknownDryRun.validRowsCount).toBe(0);
       expect(unknownDryRun.errors[0]?.field).toBe("unit_type");
 
-      const contradictory = "Unit #,Type,Usage,Area,Price\nU-WRONG,Apartment,Commercial,120,2000000";
-      const contradictionDryRun = await validateAndDryRunImport(orgAContext, "units", contradictory, { projectId });
+      const contradictory =
+        "Unit #,Type,Usage,Area,Price\nU-WRONG,Apartment,Commercial,120,2000000";
+      const contradictionDryRun = await validateAndDryRunImport(
+        orgAContext,
+        "units",
+        contradictory,
+        { projectId },
+      );
       expect(contradictionDryRun.validRowsCount).toBe(0);
       expect(contradictionDryRun.errors[0]?.field).toBe("usage_type");
     });

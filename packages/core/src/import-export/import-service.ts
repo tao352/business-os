@@ -188,8 +188,12 @@ export async function validateAndDryRunImport(
         const rawUnitType = String(coreData.unit_type ?? "").trim();
         const unitType = normalizeUnitType(rawUnitType);
         const rawUsageType = String(coreData.usage_type ?? "").trim();
-        const explicitUsageType = rawUsageType ? normalizeUsageType(rawUsageType) : null;
-        const usageType = explicitUsageType ?? (unitType ? inferUsageTypeFromUnitType(unitType) : null);
+        const explicitUsageType = rawUsageType
+          ? normalizeUsageType(rawUsageType)
+          : null;
+        const usageType =
+          explicitUsageType ??
+          (unitType ? inferUsageTypeFromUnitType(unitType) : null);
         const grossArea = parseFloat(String(coreData.gross_area || "0"));
         const price = parseFloat(String(coreData.price || "0"));
 
@@ -202,19 +206,42 @@ export async function validateAndDryRunImport(
           continue;
         }
         if (!unitType) {
-          errors.push({ rowNumber: rowNum, field: "unit_type", message: rawUnitType ? `Unsupported unit type '${rawUnitType}' — review mapping before import` : "Unit type is required" });
+          errors.push({
+            rowNumber: rowNum,
+            field: "unit_type",
+            message: rawUnitType
+              ? `Unsupported unit type '${rawUnitType}' — review mapping before import`
+              : "Unit type is required",
+          });
           continue;
         }
         if (!usageType) {
-          errors.push({ rowNumber: rowNum, field: "usage_type", message: rawUsageType ? `Unsupported usage type '${rawUsageType}' — review mapping before import` : `Usage type is required for unit type '${unitType}'` });
+          errors.push({
+            rowNumber: rowNum,
+            field: "usage_type",
+            message: rawUsageType
+              ? `Unsupported usage type '${rawUsageType}' — review mapping before import`
+              : `Usage type is required for unit type '${unitType}'`,
+          });
           continue;
         }
-        if (explicitUsageType && !isUsageTypeCompatible(unitType, explicitUsageType)) {
-          errors.push({ rowNumber: rowNum, field: "usage_type", message: `Usage type '${explicitUsageType}' conflicts with unit type '${unitType}'` });
+        if (
+          explicitUsageType &&
+          !isUsageTypeCompatible(unitType, explicitUsageType)
+        ) {
+          errors.push({
+            rowNumber: rowNum,
+            field: "usage_type",
+            message: `Usage type '${explicitUsageType}' conflicts with unit type '${unitType}'`,
+          });
           continue;
         }
         if (isNaN(price) || price <= 0) {
-          errors.push({ rowNumber: rowNum, field: "price", message: "Price must be a positive number" });
+          errors.push({
+            rowNumber: rowNum,
+            field: "price",
+            message: "Price must be a positive number",
+          });
           continue;
         }
 
@@ -390,10 +417,23 @@ export async function executeImport(
         const price = parseFloat(String(coreData.price || "0"));
         const unitType = normalizeUnitType(String(coreData.unit_type ?? ""));
         const rawUsageType = String(coreData.usage_type ?? "").trim();
-        const explicitUsageType = rawUsageType ? normalizeUsageType(rawUsageType) : null;
-        const usageType = explicitUsageType ?? (unitType ? inferUsageTypeFromUnitType(unitType) : null);
-        if (!unitNumber || isNaN(price) || price <= 0 || !unitType || !usageType ||
-            (explicitUsageType && !isUsageTypeCompatible(unitType, explicitUsageType))) continue;
+        const explicitUsageType = rawUsageType
+          ? normalizeUsageType(rawUsageType)
+          : null;
+        const usageType =
+          explicitUsageType ??
+          (unitType ? inferUsageTypeFromUnitType(unitType) : null);
+        if (
+          !unitNumber ||
+          isNaN(price) ||
+          price <= 0 ||
+          !unitType ||
+          !usageType ||
+          (explicitUsageType &&
+            !isUsageTypeCompatible(unitType, explicitUsageType))
+        ) {
+          continue;
+        }
 
         const existing = await client.query<{ id: string }>(
           `SELECT id FROM units WHERE organization_id = $1 AND project_id = $2 AND unit_number = $3`,
@@ -413,8 +453,15 @@ export async function executeImport(
                    model_name = COALESCE($5, model_name),
                    custom_data = custom_data || $6::jsonb, updated_at = NOW()
                WHERE id = $7`,
-              [unitType, usageType, price, coreData.gross_area ?? null,
-               coreData.model_name ?? null, JSON.stringify(customData), existing.rows[0]!.id],
+              [
+                unitType,
+                usageType,
+                price,
+                coreData.gross_area ?? null,
+                coreData.model_name ?? null,
+                JSON.stringify(customData),
+                existing.rows[0]!.id,
+              ],
             );
             updatedCount++;
             continue;
@@ -427,9 +474,18 @@ export async function executeImport(
              organization_id, project_id, unit_number, usage_type, unit_type,
              model_name, gross_area, price, status, custom_data
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [context.organizationId, options.projectId, unitNumber, usageType, unitType,
-           coreData.model_name ?? null, coreData.gross_area ?? 100, price,
-           String(coreData.status ?? "AVAILABLE").toUpperCase(), JSON.stringify(customData)],
+          [
+            context.organizationId,
+            options.projectId,
+            unitNumber,
+            usageType,
+            unitType,
+            coreData.model_name ?? null,
+            coreData.gross_area ?? 100,
+            price,
+            String(coreData.status ?? "AVAILABLE").toUpperCase(),
+            JSON.stringify(customData),
+          ],
         );
         importedCount++;
       }

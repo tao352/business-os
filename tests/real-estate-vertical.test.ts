@@ -1322,68 +1322,234 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
 
     it("should scope reservation lists by salesperson assignment and enforce read permission", async () => {
       const suffix = `reservation-list-${Date.now()}`;
-      const salesA = await registerUser({ email: `ra.${suffix}@test.com`, password: "Password123!", fullName: "Agent A" });
-      const salesB = await registerUser({ email: `rb.${suffix}@test.com`, password: "Password123!", fullName: "Agent B" });
-      const manager = await registerUser({ email: `rm.${suffix}@test.com`, password: "Password123!", fullName: "Manager" });
-      const marketing = await registerUser({ email: `mk.${suffix}@test.com`, password: "Password123!", fullName: "Marketing" });
-      await withTenantContext(orgAContext.organizationId, async (tx) => {
-        await tx.query("INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'SALESPERSON',true)", [orgAContext.organizationId,salesA.id]);
-        await tx.query("INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'SALESPERSON',true)", [orgAContext.organizationId,salesB.id]);
-        await tx.query("INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'SALES_MANAGER',true)", [orgAContext.organizationId,manager.id]);
-        await tx.query("INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'MARKETING_USER',true)", [orgAContext.organizationId,marketing.id]);
+      const salesA = await registerUser({
+        email: `ra.${suffix}@test.com`,
+        password: "Password123!",
+        fullName: "Agent A",
       });
-      const ctxA: TenantContext = { organizationId:orgAContext.organizationId,userId:salesA.id,role:"SALESPERSON",correlationId:suffix+"a" };
-      const ctxB: TenantContext = { organizationId:orgAContext.organizationId,userId:salesB.id,role:"SALESPERSON",correlationId:suffix+"b" };
-      const ctxM: TenantContext = { organizationId:orgAContext.organizationId,userId:manager.id,role:"SALES_MANAGER",correlationId:suffix+"m" };
-      const ctxMarketing: TenantContext = { organizationId:orgAContext.organizationId,userId:marketing.id,role:"MARKETING_USER",correlationId:suffix+"mk" };
-      const leadA = await createLead(orgAContext,{fullName:"Lead A",phone:`0101${Date.now().toString().slice(-7)}`,assignedUserId:salesA.id});
-      const leadB = await createLead(orgAContext,{fullName:"Lead B",phone:`0102${Date.now().toString().slice(-7)}`,assignedUserId:salesB.id});
-      const p = await createProject(orgAContext,{name:`Visibility ${suffix}`,location:"Test"});
-      const uA = await createUnit(orgAContext,{projectId:p.id,unitNumber:`VA-${suffix}`,grossArea:100,price:1000000});
-      const uB = await createUnit(orgAContext,{projectId:p.id,unitNumber:`VB-${suffix}`,grossArea:110,price:1100000});
-      const rA = await createReservation(ctxA,{leadId:leadA.id,unitId:uA.id,depositAmount:10000,expiresAt:new Date(Date.now()+86400000).toISOString()});
-      const rB = await createReservation(ctxB,{leadId:leadB.id,unitId:uB.id,depositAmount:10000,expiresAt:new Date(Date.now()+86400000).toISOString()});
-      expect((await listReservations(ctxA)).map(r=>r.id)).toContain(rA.id);
-      expect((await listReservations(ctxA)).map(r=>r.id)).not.toContain(rB.id);
-      expect((await listReservations(ctxB)).map(r=>r.id)).toContain(rB.id);
-      expect((await listReservations(ctxB)).map(r=>r.id)).not.toContain(rA.id);
-      expect((await listReservations(ctxM)).map(r=>r.id)).toEqual(expect.arrayContaining([rA.id,rB.id]));
-      await expect(listReservations(ctxMarketing)).rejects.toThrow(ForbiddenError);
+      const salesB = await registerUser({
+        email: `rb.${suffix}@test.com`,
+        password: "Password123!",
+        fullName: "Agent B",
+      });
+      const manager = await registerUser({
+        email: `rm.${suffix}@test.com`,
+        password: "Password123!",
+        fullName: "Manager",
+      });
+      const marketing = await registerUser({
+        email: `mk.${suffix}@test.com`,
+        password: "Password123!",
+        fullName: "Marketing",
+      });
+
+      await withTenantContext(orgAContext.organizationId, async (tx) => {
+        await tx.query(
+          "INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'SALESPERSON',true)",
+          [orgAContext.organizationId, salesA.id],
+        );
+        await tx.query(
+          "INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'SALESPERSON',true)",
+          [orgAContext.organizationId, salesB.id],
+        );
+        await tx.query(
+          "INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'SALES_MANAGER',true)",
+          [orgAContext.organizationId, manager.id],
+        );
+        await tx.query(
+          "INSERT INTO organization_memberships (organization_id,user_id,role,is_active) VALUES ($1,$2,'MARKETING_USER',true)",
+          [orgAContext.organizationId, marketing.id],
+        );
+      });
+
+      const ctxA: TenantContext = {
+        organizationId: orgAContext.organizationId,
+        userId: salesA.id,
+        role: "SALESPERSON",
+        correlationId: `${suffix}a`,
+      };
+      const ctxB: TenantContext = {
+        organizationId: orgAContext.organizationId,
+        userId: salesB.id,
+        role: "SALESPERSON",
+        correlationId: `${suffix}b`,
+      };
+      const ctxM: TenantContext = {
+        organizationId: orgAContext.organizationId,
+        userId: manager.id,
+        role: "SALES_MANAGER",
+        correlationId: `${suffix}m`,
+      };
+      const ctxMarketing: TenantContext = {
+        organizationId: orgAContext.organizationId,
+        userId: marketing.id,
+        role: "MARKETING_USER",
+        correlationId: `${suffix}mk`,
+      };
+
+      const leadA = await createLead(orgAContext, {
+        fullName: "Lead A",
+        phone: `0101${Date.now().toString().slice(-7)}`,
+        assignedUserId: salesA.id,
+      });
+      const leadB = await createLead(orgAContext, {
+        fullName: "Lead B",
+        phone: `0102${Date.now().toString().slice(-7)}`,
+        assignedUserId: salesB.id,
+      });
+      const project = await createProject(orgAContext, {
+        name: `Visibility ${suffix}`,
+        location: "Test",
+      });
+      const unitA = await createUnit(orgAContext, {
+        projectId: project.id,
+        unitNumber: `VA-${suffix}`,
+        grossArea: 100,
+        price: 1000000,
+      });
+      const unitB = await createUnit(orgAContext, {
+        projectId: project.id,
+        unitNumber: `VB-${suffix}`,
+        grossArea: 110,
+        price: 1100000,
+      });
+
+      const reservationA = await createReservation(ctxA, {
+        leadId: leadA.id,
+        unitId: unitA.id,
+        depositAmount: 10000,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+      const reservationB = await createReservation(ctxB, {
+        leadId: leadB.id,
+        unitId: unitB.id,
+        depositAmount: 10000,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+
+      expect((await listReservations(ctxA)).map((r) => r.id)).toContain(
+        reservationA.id,
+      );
+      expect((await listReservations(ctxA)).map((r) => r.id)).not.toContain(
+        reservationB.id,
+      );
+      expect((await listReservations(ctxB)).map((r) => r.id)).toContain(
+        reservationB.id,
+      );
+      expect((await listReservations(ctxB)).map((r) => r.id)).not.toContain(
+        reservationA.id,
+      );
+      expect((await listReservations(ctxM)).map((r) => r.id)).toEqual(
+        expect.arrayContaining([reservationA.id, reservationB.id]),
+      );
+      await expect(listReservations(ctxMarketing)).rejects.toThrow(
+        ForbiddenError,
+      );
     });
 
     it("should avoid deadlocks when cancel races with create and sweep", async () => {
-      const suffix=`cancel-race-${Date.now()}`;
-      const p=await createProject(orgAContext,{name:`Cancel Race ${suffix}`,location:"Test"});
-      const u=await createUnit(orgAContext,{projectId:p.id,unitNumber:`CR-${suffix}`,grossArea:120,price:2000000});
-      const l1=await createLead(orgAContext,{fullName:"Race One",phone:`0111${Date.now().toString().slice(-7)}`});
-      const l2=await createLead(orgAContext,{fullName:"Race Two",phone:`0112${Date.now().toString().slice(-7)}`});
-      const r=await createReservation(orgAContext,{leadId:l1.id,unitId:u.id,depositAmount:10000,expiresAt:new Date(Date.now()+86400000).toISOString()});
-      const results=await Promise.all([
-        cancelReservation(orgAContext,r.id,"race").catch(e=>e),
-        createReservation(orgAContext,{leadId:l2.id,unitId:u.id,depositAmount:12000,expiresAt:new Date(Date.now()+86400000).toISOString()}).catch(e=>e),
-        expireStaleReservations(orgAContext).catch(e=>e),
+      const suffix = `cancel-race-${Date.now()}`;
+      const project = await createProject(orgAContext, {
+        name: `Cancel Race ${suffix}`,
+        location: "Test",
+      });
+      const unit = await createUnit(orgAContext, {
+        projectId: project.id,
+        unitNumber: `CR-${suffix}`,
+        grossArea: 120,
+        price: 2000000,
+      });
+      const leadOne = await createLead(orgAContext, {
+        fullName: "Race One",
+        phone: `0111${Date.now().toString().slice(-7)}`,
+      });
+      const leadTwo = await createLead(orgAContext, {
+        fullName: "Race Two",
+        phone: `0112${Date.now().toString().slice(-7)}`,
+      });
+      const reservation = await createReservation(orgAContext, {
+        leadId: leadOne.id,
+        unitId: unit.id,
+        depositAmount: 10000,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+
+      const results = await Promise.all([
+        cancelReservation(orgAContext, reservation.id, "race").catch(
+          (error) => error,
+        ),
+        createReservation(orgAContext, {
+          leadId: leadTwo.id,
+          unitId: unit.id,
+          depositAmount: 12000,
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+        }).catch((error) => error),
+        expireStaleReservations(orgAContext).catch((error) => error),
       ]);
-      for(const result of results) if(result instanceof Error) expect((result as {code?:string}).code).not.toBe("40P01");
-      const active=(await listReservations(orgAContext,{unitId:u.id})).filter(x=>["CONFIRMED","PENDING"].includes(x.status));
+
+      for (const result of results) {
+        if (result instanceof Error) {
+          expect((result as { code?: string }).code).not.toBe("40P01");
+        }
+      }
+
+      const active = (
+        await listReservations(orgAContext, { unitId: unit.id })
+      ).filter((item) => ["CONFIRMED", "PENDING"].includes(item.status));
       expect(active.length).toBeLessThanOrEqual(1);
-      expect((await getUnit(orgAContext,u.id))?.status).toBe(active.length===1?"RESERVED":"AVAILABLE");
+      expect((await getUnit(orgAContext, unit.id))?.status).toBe(
+        active.length === 1 ? "RESERVED" : "AVAILABLE",
+      );
     });
 
     it("should avoid deadlocks when cancel races with expiration sweeping", async () => {
-      const suffix=`cancel-sweep-${Date.now()}`;
-      const p=await createProject(orgAContext,{name:`Cancel Sweep ${suffix}`,location:"Test"});
-      const u=await createUnit(orgAContext,{projectId:p.id,unitNumber:`CS-${suffix}`,grossArea:125,price:2100000});
-      const l=await createLead(orgAContext,{fullName:"Sweep Buyer",phone:`0121${Date.now().toString().slice(-7)}`});
-      const r=await createReservation(orgAContext,{leadId:l.id,unitId:u.id,depositAmount:10000,expiresAt:new Date(Date.now()+86400000).toISOString()});
-      await withTenantContext(orgAContext.organizationId,async tx=>{await tx.query("UPDATE reservations SET expires_at=NOW()-INTERVAL '1 hour' WHERE id=$1",[r.id]);});
-      const results=await Promise.all([
-        cancelReservation(orgAContext,r.id,"sweep race").catch(e=>e),
-        expireStaleReservations(orgAContext).catch(e=>e),
+      const suffix = `cancel-sweep-${Date.now()}`;
+      const project = await createProject(orgAContext, {
+        name: `Cancel Sweep ${suffix}`,
+        location: "Test",
+      });
+      const unit = await createUnit(orgAContext, {
+        projectId: project.id,
+        unitNumber: `CS-${suffix}`,
+        grossArea: 125,
+        price: 2100000,
+      });
+      const lead = await createLead(orgAContext, {
+        fullName: "Sweep Buyer",
+        phone: `0121${Date.now().toString().slice(-7)}`,
+      });
+      const reservation = await createReservation(orgAContext, {
+        leadId: lead.id,
+        unitId: unit.id,
+        depositAmount: 10000,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+
+      await withTenantContext(orgAContext.organizationId, async (tx) => {
+        await tx.query(
+          "UPDATE reservations SET expires_at=NOW()-INTERVAL '1 hour' WHERE id=$1",
+          [reservation.id],
+        );
+      });
+
+      const results = await Promise.all([
+        cancelReservation(orgAContext, reservation.id, "sweep race").catch(
+          (error) => error,
+        ),
+        expireStaleReservations(orgAContext).catch((error) => error),
       ]);
-      for(const result of results) if(result instanceof Error) expect((result as {code?:string}).code).not.toBe("40P01");
-      const final=await listReservations(orgAContext,{unitId:u.id});
-      expect(["CANCELLED","EXPIRED"]).toContain(final[0]!.status);
-      expect((await getUnit(orgAContext,u.id))?.status).toBe("AVAILABLE");
+
+      for (const result of results) {
+        if (result instanceof Error) {
+          expect((result as { code?: string }).code).not.toBe("40P01");
+        }
+      }
+
+      const finalReservations = await listReservations(orgAContext, {
+        unitId: unit.id,
+      });
+      expect(["CANCELLED", "EXPIRED"]).toContain(finalReservations[0]!.status);
+      expect((await getUnit(orgAContext, unit.id))?.status).toBe("AVAILABLE");
     });
 
   });

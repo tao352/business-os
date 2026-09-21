@@ -476,8 +476,13 @@ describe("H0 Foundation Audit & Hardening Regression Test Suite", () => {
           has_table_privilege('app_user','public.lead_property_interests','TRIGGER') AS can_trigger`,
       );
       expect(res.rows[0]).toMatchObject({
-        can_select:true,can_insert:true,can_update:true,can_delete:true,
-        can_truncate:false,can_references:false,can_trigger:false,
+        can_select: true,
+        can_insert: true,
+        can_update: true,
+        can_delete: true,
+        can_truncate: false,
+        can_references: false,
+        can_trigger: false,
       });
     });
 
