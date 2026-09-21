@@ -400,3 +400,21 @@
      - Playwright browser E2E (9 passed, 1 skipped) and Visual QA (1 passed) passing 100%.
      - Strict TypeScript typecheck (`tsc --noEmit`), Next.js production build, and Prettier clean.
 - **Rationale:** Delivers complete, production-hardened real estate inventory, wishlist matching, and financial lifecycle capabilities while maintaining absolute multi-tenant isolation, authorization safety, and strict architectural discipline.
+
+
+---
+
+### ADR-024: Phase 23A — Sales Pipeline Integrity and Task-Based Next Action
+
+- **Date:** 2026-09-21
+- **Status:** APPROVED [IN PROGRESS]
+- **Context:** Phase 22 established the real-estate domain, but the CRM still allowed operational gaps: lead stage changes had no structured history, lost leads lacked consistent closure reasons, and “next action” risked becoming a second duplicated field beside the existing Tasks domain. The product also needs an explicit sales module that can evolve independently from CRM primitives.
+- **Decision:**
+  1. **Tasks are the authoritative Next Action source:** The earliest incomplete Task attached to a Lead is treated as that Lead's next action. No separate `next_action_at` or `next_action_title` columns are introduced on `leads`.
+  2. **Structured pipeline lifecycle metadata:** Leads gain `pipeline_stage_entered_at`, `lost_reason_code`, `lost_reason_notes`, and `closed_at`.
+  3. **Structured stage history:** `lead_stage_history` records pipeline transitions with tenant-safe composite foreign keys and RLS. Runtime access is least-privilege (`SELECT` + `INSERT` only).
+  4. **Logical manual transition guard:** User-driven stage updates are constrained to valid sales-flow transitions, preventing impossible jumps such as `NEW -> CONTRACTED`.
+  5. **Structured closure reasons:** Lost and unqualified leads capture controlled reason codes, enabling future loss analytics without free-text-only ambiguity.
+  6. **Dedicated Sales module:** Anti-lead-leakage read models live under `packages/core/src/sales`, keeping higher-level sales execution logic separate from lower-level CRM entity services.
+  7. **Role-aware follow-up health:** The system derives `NO_NEXT_ACTION`, `OVERDUE_NEXT_ACTION`, `STALE_CONTACT`, or `HEALTHY` from existing lead/task data while preserving SALESPERSON assignment scoping.
+- **Rationale:** Prevents duplicate sources of truth, creates measurable pipeline history, enables manager anti-leakage views, and establishes a modular sales boundary that can accept future SLA, forecasting, automation, and AI-assist features without restructuring the CRM core.
