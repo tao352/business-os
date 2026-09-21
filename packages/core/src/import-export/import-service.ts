@@ -15,7 +15,7 @@ import { parseCsv } from "./csv-parser.js";
 import { autoDetectColumnMapping } from "./column-matcher.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
-import { recordInitialLeadStageInTransaction } from "../crm/lead-lifecycle.js";
+import { createLeadInTransaction } from "../crm/lead-lifecycle.js";
 import { assertPermission } from "../permissions/checker.js";
 import {
   inferUsageTypeFromUnitType,
@@ -396,36 +396,19 @@ export async function executeImport(
           }
         }
 
-        // INSERT
-        const insertedLeadRes = await client.query<{
-          id: string;
-          status: LeadStatus;
-        }>(
-          `INSERT INTO leads (organization_id, full_name, phone, email, status, source, custom_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING id, status`,
-          [
-            context.organizationId,
-            fullName,
-            phone,
-            coreData.email ?? null,
-            coreData.status ?? "NEW",
-            coreData.source ?? "IMPORT",
-            JSON.stringify(customData),
-          ],
-        );
-
-        const insertedLead = insertedLeadRes.rows[0]!;
-        await recordInitialLeadStageInTransaction(
-          client,
-          context,
-          insertedLead.id,
-          insertedLead.status,
-          {
+        // INSERT through the shared CRM creation invariant.
+        await createLeadInTransaction(client, context, {
+          fullName,
+          phone,
+          email: (coreData.email as string | undefined) ?? null,
+          status: String(coreData.status ?? "NEW").toUpperCase() as LeadStatus,
+          source: String(coreData.source ?? "IMPORT"),
+          customData,
+          initialStageMetadata: {
             source: "csv_import",
             rowNumber: rowNum,
           },
-        );
+        });
 
         importedCount++;
       } else if (entityType === "units") {
