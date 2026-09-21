@@ -118,5 +118,11 @@ describe("R1.3 Opportunity domain boundary", () => {
     const legacyList = await listDeals(ownerContext);
     expect(legacyList.map((row) => row.id)).toContain(opportunity.id);
     expect(legacyList.map((row) => row.id)).toContain(legacyDeal.id);
+
+    const legacyOpportunityRow = legacyList.find(
+      (row) => row.id === opportunity.id,
+    );
+    expect(legacyOpportunityRow?.lead_name).toBe("Opportunity Customer");
+    expect(legacyOpportunityRow?.assignee_name).toBe("Salesperson A");
   });
 });
