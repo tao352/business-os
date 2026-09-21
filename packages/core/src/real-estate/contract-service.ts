@@ -8,6 +8,7 @@ import {
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 
 export interface CreateContractInput {
   reservationId?: string;
@@ -96,9 +97,19 @@ export async function createContract(
         `UPDATE units SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
         [input.unitId],
       );
-      await client.query(
-        `UPDATE leads SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-        [input.leadId],
+      await transitionLeadStageInTransaction(
+        client,
+        context,
+        input.leadId,
+        "CONTRACTED",
+        {
+          enforceTransition: false,
+          metadata: {
+            source: "contract_executed",
+            contractId: created.id,
+            unitId: input.unitId,
+          },
+        },
       );
 
       // Append to lead timeline
@@ -172,10 +183,20 @@ export async function signContract(
       [existing.unit_id],
     );
 
-    // 3. Update lead to CONTRACTED
-    await client.query(
-      `UPDATE leads SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-      [existing.lead_id],
+    // 3. Progress the Lead through the same lifecycle engine used everywhere else.
+    await transitionLeadStageInTransaction(
+      client,
+      context,
+      existing.lead_id,
+      "CONTRACTED",
+      {
+        enforceTransition: false,
+        metadata: {
+          source: "contract_signed",
+          contractId,
+          unitId: existing.unit_id,
+        },
+      },
     );
 
     // 4. Log activity on timeline
