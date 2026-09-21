@@ -161,7 +161,9 @@ export async function createOpportunity(
 
     await recordAuditLog(tx, context, {
       action: "CREATE",
-      entityType: "opportunity",
+      // Keep the persisted audit discriminator stable during the compatibility
+      // phase. Renaming historical audit taxonomy is a separate migration.
+      entityType: "deal",
       entityId: opportunity.id,
       afterState: opportunity as unknown as Record<string, unknown>,
     });
@@ -174,9 +176,10 @@ export async function createOpportunity(
         context.organizationId,
         input.leadId,
         context.userId,
-        `Opportunity created: ${opportunity.title} (${opportunity.value} ${opportunity.currency})`,
+        `Deal created: ${opportunity.title} (${opportunity.value} ${opportunity.currency})`,
         JSON.stringify({
           opportunityId: opportunity.id,
+          dealId: opportunity.id,
           value: opportunity.value,
           stage,
         }),
@@ -241,7 +244,9 @@ export async function updateOpportunityStage(
 
     await recordAuditLog(tx, context, {
       action: "UPDATE",
-      entityType: "opportunity",
+      // Preserve the existing audit entity discriminator until the physical
+      // Deal-to-Opportunity migration is intentionally performed.
+      entityType: "deal",
       entityId: opportunityId,
       beforeState: { stage: opportunity.stage },
       afterState: { stage: newStage },
@@ -255,9 +260,10 @@ export async function updateOpportunityStage(
         context.organizationId,
         opportunity.lead_id,
         context.userId,
-        `Opportunity "${opportunity.title}" stage changed from ${opportunity.stage} to ${newStage}`,
+        `Deal "${opportunity.title}" stage changed from ${opportunity.stage} to ${newStage}`,
         JSON.stringify({
           opportunityId,
+          dealId: opportunityId,
           oldStage: opportunity.stage,
           newStage,
         }),
