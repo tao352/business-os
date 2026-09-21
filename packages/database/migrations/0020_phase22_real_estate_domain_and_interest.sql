@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS public.lead_property_interests (
     CHECK (area_min IS NULL OR area_max IS NULL OR area_min <= area_max)
 );
 
--- Invariant: Exactly one primary ACTIVE interest per lead at any time
+-- Invariant: At most one primary ACTIVE interest per lead at any time
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_primary_active_interest
   ON public.lead_property_interests (organization_id, lead_id)
   WHERE status = 'ACTIVE' AND is_primary = TRUE;
