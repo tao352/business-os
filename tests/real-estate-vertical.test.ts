@@ -747,7 +747,7 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       // 5. Test Primary Active Demotion (Exactly one primary active interest per lead)
       const interest3 = await addLeadInterest(orgAContext, {
         leadId: clinicBuyer.id,
-        usageType: "COMMERCIAL",
+        usageType: "ADMINISTRATIVE",
         unitType: "OFFICE",
         budgetMin: 2000000,
         budgetMax: 3500000,
@@ -803,7 +803,7 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       });
       await addLeadInterest(orgBContext, {
         leadId: foreignLead.id,
-        usageType: "COMMERCIAL",
+        usageType: "MEDICAL",
         unitType: "CLINIC",
         budgetMin: 3000000,
         budgetMax: 4000000,
