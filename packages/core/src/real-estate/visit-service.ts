@@ -92,12 +92,7 @@ export async function scheduleVisit(
       input.leadId,
       "SITE_VISIT_BOOKED",
       {
-        onlyFrom: [
-          "NEW",
-          "CONTACTED",
-          "QUALIFIED",
-          "MEETING_SCHEDULED",
-        ],
+        onlyFrom: ["NEW", "CONTACTED", "QUALIFIED", "MEETING_SCHEDULED"],
         enforceTransition: false,
         metadata: {
           source: "visit_scheduled",
