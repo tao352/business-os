@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import {
   pool,
   migratorPool,
@@ -9,6 +12,7 @@ import {
 import {
   runPendingMigrations,
   verifyMigrationIntegrity,
+  computeFileChecksum,
 } from "../packages/database/src/migrator.js";
 import {
   encryptSecret,
@@ -143,6 +147,21 @@ describe("H0 Foundation Audit & Hardening Regression Test Suite", () => {
       const check = await verifyMigrationIntegrity();
       expect(check.valid).toBe(true);
       expect(check.mismatches).toEqual([]);
+    });
+
+    it("should compute identical SHA-256 checksums regardless of CRLF or LF line endings", () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mig-check-"));
+      const fileCrLf = path.join(tempDir, "crlf.sql");
+      const fileLf = path.join(tempDir, "lf.sql");
+      try {
+        fs.writeFileSync(fileCrLf, "SELECT 1;\r\nSELECT 2;\r\n");
+        fs.writeFileSync(fileLf, "SELECT 1;\nSELECT 2;\n");
+        const hashCrLf = computeFileChecksum(fileCrLf);
+        const hashLf = computeFileChecksum(fileLf);
+        expect(hashCrLf).toBe(hashLf);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 

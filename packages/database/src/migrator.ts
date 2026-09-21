@@ -25,7 +25,10 @@ export interface AppliedMigration {
 
 export function computeFileChecksum(filePath: string): string {
   const content = fs.readFileSync(filePath, "utf8");
-  return crypto.createHash("sha256").update(content.trim()).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(content.replace(/\r\n/g, "\n").trim())
+    .digest("hex");
 }
 
 /**
