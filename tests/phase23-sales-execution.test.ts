@@ -156,6 +156,8 @@ describe("Phase 23A Sales Execution & Anti-Lead-Leakage", () => {
     expect(overdue?.health).toBe("OVERDUE_NEXT_ACTION");
     expect(overdue?.nextActionId).toBe(overdueTask.id);
     expect(overdue?.nextActionTitle).toBe("Call overdue lead");
+    expect(overdue?.assignedName).toBe("Phase 23 Sales A");
+    expect(overdue?.source).toBe("MANUAL");
   });
 
   it("keeps internal notes from faking customer contact", async () => {
