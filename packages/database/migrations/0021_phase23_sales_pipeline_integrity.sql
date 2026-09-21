@@ -37,7 +37,7 @@ ALTER TABLE public.leads
 -- Refuse to silently reinterpret unknown legacy pipeline values. If an older
 -- deployment contains a non-canonical status, an operator must explicitly
 -- reconcile it before Phase 23 can establish authoritative stage history.
-DO $
+DO $$
 DECLARE
   invalid_statuses TEXT;
 BEGIN
@@ -54,7 +54,7 @@ BEGIN
       'Phase 23 migration blocked: non-canonical lead statuses found: %. Reconcile them before retrying.',
       invalid_statuses;
   END IF;
-END $;
+END $$;
 
 ALTER TABLE public.leads
   ADD CONSTRAINT chk_leads_status_phase23
