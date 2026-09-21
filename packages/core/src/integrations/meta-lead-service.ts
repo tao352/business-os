@@ -192,16 +192,10 @@ export async function ingestMetaLead(
 
     const newLead = newLeadRes.rows[0];
 
-    await recordInitialLeadStageInTransaction(
-      tx,
-      context,
-      newLead.id,
-      "NEW",
-      {
-        source: "meta_lead_ads",
-        leadgenId: input.leadgenId,
-      },
-    );
+    await recordInitialLeadStageInTransaction(tx, context, newLead.id, "NEW", {
+      source: "meta_lead_ads",
+      leadgenId: input.leadgenId,
+    });
 
     // Immutable Audit Log
     await recordAuditLog(tx, context, {
