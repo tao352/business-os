@@ -302,7 +302,11 @@ export async function signContract(
            SET opportunity_id = $1, updated_at = NOW()
            WHERE organization_id = $2 AND id = $3
            RETURNING *`,
-          [reservation.opportunity_id, context.organizationId, contractId],
+          [
+            reservation.opportunity_id,
+            context.organizationId,
+            contractId,
+          ],
         );
         const inherited = inheritedRes.rows[0];
         if (inherited) {
