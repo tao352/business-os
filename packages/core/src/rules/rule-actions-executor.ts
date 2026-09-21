@@ -4,6 +4,7 @@ import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
 import { enqueueWhatsAppOutbound } from "../whatsapp/whatsapp-outbox-service.js";
+import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 
 export interface ActionExecutionResult {
   action_type: string;
@@ -210,11 +211,21 @@ export async function executeRuleAction(
         }
         const newStatus = String(action.params.status || "CONTACTED");
 
-        await tx.query(
-          `UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2`,
-          [newStatus, entityId],
+        const transition = await transitionLeadStageInTransaction(
+          tx,
+          context,
+          entityId,
+          newStatus as any,
+          {
+            enforceTransition: false,
+            metadata: {
+              source: "automation_rule",
+              ruleId,
+              actionType: action.action_type,
+            },
+          },
         );
-        entity.status = newStatus;
+        entity.status = transition.lead.status as string;
 
         await tx.query(
           `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
