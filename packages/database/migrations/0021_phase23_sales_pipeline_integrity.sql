@@ -34,6 +34,37 @@ ALTER TABLE public.leads
     )
   );
 
+-- Refuse to silently reinterpret unknown legacy pipeline values. If an older
+-- deployment contains a non-canonical status, an operator must explicitly
+-- reconcile it before Phase 23 can establish authoritative stage history.
+DO $
+DECLARE
+  invalid_statuses TEXT;
+BEGIN
+  SELECT string_agg(DISTINCT status, ', ' ORDER BY status)
+  INTO invalid_statuses
+  FROM public.leads
+  WHERE status NOT IN (
+    'NEW','CONTACTED','QUALIFIED','MEETING_SCHEDULED','SITE_VISIT_BOOKED',
+    'RESERVED','CONTRACTED','UNQUALIFIED','LOST'
+  );
+
+  IF invalid_statuses IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Phase 23 migration blocked: non-canonical lead statuses found: %. Reconcile them before retrying.',
+      invalid_statuses;
+  END IF;
+END $;
+
+ALTER TABLE public.leads
+  ADD CONSTRAINT chk_leads_status_phase23
+  CHECK (
+    status IN (
+      'NEW','CONTACTED','QUALIFIED','MEETING_SCHEDULED','SITE_VISIT_BOOKED',
+      'RESERVED','CONTRACTED','UNQUALIFIED','LOST'
+    )
+  );
+
 CREATE INDEX IF NOT EXISTS idx_leads_pipeline_health
   ON public.leads (
     organization_id,
