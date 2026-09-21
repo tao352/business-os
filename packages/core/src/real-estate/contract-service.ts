@@ -49,8 +49,12 @@ export async function createContract(
       throw new Error(`Unit '${input.unitId}' not found`);
     }
 
-    // 2. If converting from a Reservation, lock it second and verify it
-    // belongs to exactly the same Lead + Unit before changing its lifecycle.
+    const status = input.status ?? "DRAFT";
+    const isExecuted = status === "SIGNED" || status === "ACTIVE";
+
+    // 2. If linked to a Reservation, lock it second and verify it belongs
+    // to exactly the same Lead + Unit. Draft contracts keep the reservation
+    // active; only an executed contract converts it.
     if (input.reservationId) {
       const reservationRes = await client.query<{
         id: string;
@@ -76,16 +80,15 @@ export async function createContract(
         );
       }
 
-      await client.query(
-        `UPDATE reservations
-         SET status = 'CONVERTED', updated_at = NOW()
-         WHERE organization_id = $1 AND id = $2`,
-        [context.organizationId, input.reservationId],
-      );
+      if (isExecuted) {
+        await client.query(
+          `UPDATE reservations
+           SET status = 'CONVERTED', updated_at = NOW()
+           WHERE organization_id = $1 AND id = $2`,
+          [context.organizationId, input.reservationId],
+        );
+      }
     }
-
-    const status = input.status ?? "DRAFT";
-    const isExecuted = status === "SIGNED" || status === "ACTIVE";
 
     // 3. Insert Contract
     const insertSql = `
@@ -198,23 +201,73 @@ export async function signContract(
       throw new Error(`Contract '${contractId}' not found`);
     }
 
-    // 1. Update contract to SIGNED
+    // 1. Lock the Unit before any Reservation row to preserve the same
+    // Unit -> Reservation ordering used by reservation flows.
+    const unitRes = await client.query(
+      `SELECT id
+       FROM units
+       WHERE organization_id = $1 AND id = $2
+       FOR UPDATE`,
+      [context.organizationId, existing.unit_id],
+    );
+    if (unitRes.rows.length === 0) {
+      throw new Error(`Unit '${existing.unit_id}' not found`);
+    }
+
+    // 2. A Draft contract keeps its Reservation active. Signing is the point
+    // where that Reservation becomes CONVERTED.
+    if (existing.reservation_id) {
+      const reservationRes = await client.query<{
+        id: string;
+        lead_id: string;
+        unit_id: string;
+      }>(
+        `SELECT id, lead_id, unit_id
+         FROM reservations
+         WHERE organization_id = $1 AND id = $2
+         FOR UPDATE`,
+        [context.organizationId, existing.reservation_id],
+      );
+      const reservation = reservationRes.rows[0];
+      if (!reservation) {
+        throw new Error(`Reservation '${existing.reservation_id}' not found`);
+      }
+      if (
+        reservation.lead_id !== existing.lead_id ||
+        reservation.unit_id !== existing.unit_id
+      ) {
+        throw new Error(
+          "Contract reservation does not match the Contract Lead and Unit",
+        );
+      }
+
+      await client.query(
+        `UPDATE reservations
+         SET status = 'CONVERTED', updated_at = NOW()
+         WHERE organization_id = $1 AND id = $2`,
+        [context.organizationId, existing.reservation_id],
+      );
+    }
+
+    // 3. Update contract to SIGNED
     const updateRes = await client.query<Contract>(
       `UPDATE contracts
        SET status = 'SIGNED', signed_at = $1, updated_at = NOW()
-       WHERE id = $2
+       WHERE organization_id = $2 AND id = $3
        RETURNING *`,
-      [signedAt, contractId],
+      [signedAt, context.organizationId, contractId],
     );
     const updated = updateRes.rows[0]!;
 
-    // 2. Lock unit to CONTRACTED
+    // 4. Contract the already-locked Unit.
     await client.query(
-      `UPDATE units SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
-      [existing.unit_id],
+      `UPDATE units
+       SET status = 'CONTRACTED', updated_at = NOW()
+       WHERE organization_id = $1 AND id = $2`,
+      [context.organizationId, existing.unit_id],
     );
 
-    // 3. Progress the Lead through the same lifecycle engine used everywhere else.
+    // 5. Progress the Lead through the same lifecycle engine used everywhere else.
     await transitionLeadStageInTransaction(
       client,
       context,
@@ -230,7 +283,7 @@ export async function signContract(
       },
     );
 
-    // 4. Log activity on timeline
+    // 6. Log activity on timeline
     await client.query(
       `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
        VALUES ($1, $2, $3, 'NOTE', $4, $5)`,
