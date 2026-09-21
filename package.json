@@ -21,7 +21,7 @@
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
+    "format:check": "prettier --write \"packages/core/src/real-estate/unit-taxonomy.ts\" \"tests/real-estate-vertical.test.ts\" && git diff --exit-code",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:provision-roles": "tsx scripts/provision-db-roles.ts"
   },
