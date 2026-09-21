@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { TenantContext, RuleAction } from "@business-os/types";
+import type { LeadStatus, TenantContext, RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
@@ -215,7 +215,7 @@ export async function executeRuleAction(
           tx,
           context,
           entityId,
-          newStatus as any,
+          newStatus as LeadStatus,
           {
             enforceTransition: false,
             metadata: {
