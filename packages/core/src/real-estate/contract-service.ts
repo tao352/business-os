@@ -35,21 +35,52 @@ export async function createContract(
   assertPermission(context, "create", "contract");
 
   return await withTenantContext(context.organizationId, async (client) => {
-    // 1. Fetch unit details
+    // 1. Lock Unit first. Reservation flows use the same Unit -> Reservation
+    // lock order, preventing cross-service deadlocks on the same inventory.
     const unitRes = await client.query<{ id: string; unit_number: string }>(
-      `SELECT id, unit_number FROM units WHERE id = $1`,
-      [input.unitId],
+      `SELECT id, unit_number
+       FROM units
+       WHERE organization_id = $1 AND id = $2
+       FOR UPDATE`,
+      [context.organizationId, input.unitId],
     );
     const unit = unitRes.rows[0];
     if (!unit) {
       throw new Error(`Unit '${input.unitId}' not found`);
     }
 
-    // 2. If converting from reservation, mark reservation as CONVERTED
+    // 2. If converting from a Reservation, lock it second and verify it
+    // belongs to exactly the same Lead + Unit before changing its lifecycle.
     if (input.reservationId) {
+      const reservationRes = await client.query<{
+        id: string;
+        lead_id: string;
+        unit_id: string;
+      }>(
+        `SELECT id, lead_id, unit_id
+         FROM reservations
+         WHERE organization_id = $1 AND id = $2
+         FOR UPDATE`,
+        [context.organizationId, input.reservationId],
+      );
+      const reservation = reservationRes.rows[0];
+      if (!reservation) {
+        throw new Error(`Reservation '${input.reservationId}' not found`);
+      }
+      if (
+        reservation.lead_id !== input.leadId ||
+        reservation.unit_id !== input.unitId
+      ) {
+        throw new Error(
+          "Reservation does not belong to the supplied Lead and Unit",
+        );
+      }
+
       await client.query(
-        `UPDATE reservations SET status = 'CONVERTED', updated_at = NOW() WHERE id = $1`,
-        [input.reservationId],
+        `UPDATE reservations
+         SET status = 'CONVERTED', updated_at = NOW()
+         WHERE organization_id = $1 AND id = $2`,
+        [context.organizationId, input.reservationId],
       );
     }
 
