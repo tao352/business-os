@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
-import { LeadStatusSchema, type TenantContext, type RuleAction } from "@business-os/types";
+import {
+  LeadStatusSchema,
+  type TenantContext,
+  type RuleAction,
+} from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
