@@ -12,6 +12,7 @@ export interface LeadStageTransitionOptions {
   metadata?: Record<string, unknown>;
   enforceTransition?: boolean;
   authorizeUpdate?: boolean;
+  onlyFrom?: readonly LeadStatus[];
 }
 
 export interface LeadStageTransitionResult {
@@ -146,6 +147,19 @@ export async function transitionLeadStageInTransaction(
   }
 
   const oldStatus = lead.status as LeadStatus;
+
+  if (options.onlyFrom && !options.onlyFrom.includes(oldStatus)) {
+    return {
+      previousLead: lead,
+      lead,
+      previousStatus: oldStatus,
+      newStatus,
+      changed: false,
+      reasonCode: (lead.lost_reason_code as LeadClosureReason | null) ?? null,
+      reasonNotes: (lead.lost_reason_notes as string | null) ?? null,
+    };
+  }
+
   if (oldStatus === newStatus) {
     return {
       previousLead: lead,
