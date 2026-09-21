@@ -13,6 +13,10 @@ import {
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { recordAuditLog } from "./audit-helper.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
+import {
+  recordInitialLeadStageInTransaction,
+  transitionLeadStageInTransaction,
+} from "./lead-lifecycle.js";
 
 export interface CreateLeadInput {
   fullName: string;
@@ -40,53 +44,6 @@ export interface UpdateLeadStatusOptions {
   metadata?: Record<string, unknown>;
   enforceTransition?: boolean;
 }
-
-const ALLOWED_LEAD_STATUS_TRANSITIONS: Record<
-  LeadStatus,
-  readonly LeadStatus[]
-> = {
-  NEW: [
-    "CONTACTED",
-    "QUALIFIED",
-    "MEETING_SCHEDULED",
-    "SITE_VISIT_BOOKED",
-    "UNQUALIFIED",
-    "LOST",
-  ],
-  CONTACTED: [
-    "QUALIFIED",
-    "MEETING_SCHEDULED",
-    "SITE_VISIT_BOOKED",
-    "UNQUALIFIED",
-    "LOST",
-  ],
-  QUALIFIED: [
-    "CONTACTED",
-    "MEETING_SCHEDULED",
-    "SITE_VISIT_BOOKED",
-    "RESERVED",
-    "UNQUALIFIED",
-    "LOST",
-  ],
-  MEETING_SCHEDULED: [
-    "CONTACTED",
-    "QUALIFIED",
-    "SITE_VISIT_BOOKED",
-    "UNQUALIFIED",
-    "LOST",
-  ],
-  SITE_VISIT_BOOKED: [
-    "CONTACTED",
-    "QUALIFIED",
-    "RESERVED",
-    "UNQUALIFIED",
-    "LOST",
-  ],
-  RESERVED: ["QUALIFIED", "SITE_VISIT_BOOKED", "CONTRACTED", "LOST"],
-  CONTRACTED: [],
-  UNQUALIFIED: ["CONTACTED", "QUALIFIED"],
-  LOST: ["CONTACTED", "QUALIFIED"],
-};
 
 /**
  * Creates a new lead with custom field validation, audit logging and an initial activity note.
@@ -167,22 +124,12 @@ export async function createLead(
       ],
     );
 
-    await tx.query(
-      `INSERT INTO lead_stage_history (
-        organization_id,
-        lead_id,
-        from_status,
-        to_status,
-        changed_by_user_id,
-        metadata
-      ) VALUES ($1, $2, NULL, $3, $4, $5)`,
-      [
-        context.organizationId,
-        lead.id,
-        status,
-        context.userId,
-        JSON.stringify({ source: "lead_created" }),
-      ],
+    await recordInitialLeadStageInTransaction(
+      tx,
+      context,
+      lead.id,
+      status,
+      { source: "lead_created" },
     );
 
     return lead;
@@ -279,83 +226,31 @@ export async function updateLeadStatus(
   assertCanAccessIndividualLeadRecords(context);
 
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existing = await tx.query(
-      "SELECT * FROM leads WHERE organization_id = $1 AND id = $2 FOR UPDATE",
-      [context.organizationId, leadId],
+    const transition = await transitionLeadStageInTransaction(
+      tx,
+      context,
+      leadId,
+      newStatus,
+      {
+        lostReasonCode: options.lostReasonCode,
+        lostReasonNotes: options.lostReasonNotes,
+        metadata: options.metadata ?? { source: "manual_status_change" },
+        enforceTransition: options.enforceTransition,
+        authorizeUpdate: true,
+      },
     );
-    if (existing.rows.length === 0) {
-      throw new Error("Lead not found");
-    }
 
-    const lead = existing.rows[0];
-    assertPermission(context, "update", "lead", lead);
-
-    const oldStatus = lead.status as LeadStatus;
-    if (oldStatus === newStatus) {
+    const lead = transition.changed
+      ? null
+      : transition.lead;
+    if (!transition.changed) {
       return lead;
     }
 
-    const enforceTransition = options.enforceTransition ?? true;
-    if (
-      enforceTransition &&
-      !ALLOWED_LEAD_STATUS_TRANSITIONS[oldStatus].includes(newStatus)
-    ) {
-      throw new Error(
-        `Invalid lead pipeline transition from '${oldStatus}' to '${newStatus}'`,
-      );
-    }
-
-    const isClosing = newStatus === "LOST" || newStatus === "UNQUALIFIED";
-    const reasonCode: LeadClosureReason | null = isClosing
-      ? (options.lostReasonCode ?? "UNSPECIFIED")
-      : null;
-    const reasonNotes = isClosing
-      ? options.lostReasonNotes?.trim() || null
-      : null;
-
-    const res = await tx.query(
-      `UPDATE leads
-       SET status = $1,
-           pipeline_stage_entered_at = NOW(),
-           lost_reason_code = $2,
-           lost_reason_notes = $3,
-           closed_at = CASE WHEN $4::boolean THEN NOW() ELSE NULL END,
-           updated_at = NOW()
-       WHERE organization_id = $5 AND id = $6
-       RETURNING *`,
-      [
-        newStatus,
-        reasonCode,
-        reasonNotes,
-        isClosing,
-        context.organizationId,
-        leadId,
-      ],
-    );
-    const updatedLead = res.rows[0];
-
-    await tx.query(
-      `INSERT INTO lead_stage_history (
-        organization_id,
-        lead_id,
-        from_status,
-        to_status,
-        changed_by_user_id,
-        reason_code,
-        reason_notes,
-        metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        context.organizationId,
-        leadId,
-        oldStatus,
-        newStatus,
-        context.userId,
-        reasonCode,
-        reasonNotes,
-        JSON.stringify(options.metadata ?? { source: "manual_status_change" }),
-      ],
-    );
+    const oldStatus = transition.previousStatus;
+    const reasonCode = transition.reasonCode;
+    const reasonNotes = transition.reasonNotes;
+    const updatedLead = transition.lead;
 
     await recordAuditLog(tx, context, {
       action: "UPDATE",
