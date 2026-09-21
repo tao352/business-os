@@ -84,7 +84,6 @@ describe("RBAC Permission Engine", () => {
       ).toThrow(ForbiddenError);
     });
 
-
     it("SALESPERSON can only access opportunities assigned to them", () => {
       const ownOpportunity = {
         id: "opp-1",
