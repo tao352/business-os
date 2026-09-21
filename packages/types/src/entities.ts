@@ -14,6 +14,22 @@ export const LeadStatusSchema = z.enum([
 
 export type LeadStatus = z.infer<typeof LeadStatusSchema>;
 
+export const LeadClosureReasonSchema = z.enum([
+  "PRICE",
+  "FINANCING",
+  "UNIT_NOT_AVAILABLE",
+  "LOCATION",
+  "TIMING",
+  "COMPETITOR",
+  "NO_RESPONSE",
+  "NOT_QUALIFIED",
+  "DUPLICATE",
+  "OTHER",
+  "UNSPECIFIED",
+]);
+
+export type LeadClosureReason = z.infer<typeof LeadClosureReasonSchema>;
+
 export const LeadSchema = z.object({
   id: z.string().uuid(),
   organization_id: z.string().uuid(),
@@ -26,11 +42,30 @@ export const LeadSchema = z.object({
   source: z.string().default("MANUAL"),
   custom_data: z.record(z.unknown()).default({}),
   last_contacted_at: z.string().datetime().nullable().optional(),
+  pipeline_stage_entered_at: z.string().datetime().optional(),
+  lost_reason_code: LeadClosureReasonSchema.nullable().optional(),
+  lost_reason_notes: z.string().nullable().optional(),
+  closed_at: z.string().datetime().nullable().optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
 
 export type Lead = z.infer<typeof LeadSchema>;
+
+export const LeadStageHistorySchema = z.object({
+  id: z.string().uuid(),
+  organization_id: z.string().uuid(),
+  lead_id: z.string().uuid(),
+  from_status: LeadStatusSchema.nullable().optional(),
+  to_status: LeadStatusSchema,
+  changed_by_user_id: z.string().uuid().nullable().optional(),
+  reason_code: LeadClosureReasonSchema.nullable().optional(),
+  reason_notes: z.string().nullable().optional(),
+  metadata: z.record(z.unknown()).default({}),
+  created_at: z.string().datetime(),
+});
+
+export type LeadStageHistory = z.infer<typeof LeadStageHistorySchema>;
 
 export const ProjectTypeSchema = z.enum([
   "COMMERCIAL",
