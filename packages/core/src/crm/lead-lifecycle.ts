@@ -15,6 +15,7 @@ export interface LeadStageTransitionOptions {
 }
 
 export interface LeadStageTransitionResult {
+  previousLead: Record<string, unknown>;
   lead: Record<string, unknown>;
   previousStatus: LeadStatus;
   newStatus: LeadStatus;
@@ -147,6 +148,7 @@ export async function transitionLeadStageInTransaction(
   const oldStatus = lead.status as LeadStatus;
   if (oldStatus === newStatus) {
     return {
+      previousLead: lead,
       lead,
       previousStatus: oldStatus,
       newStatus,
@@ -220,6 +222,7 @@ export async function transitionLeadStageInTransaction(
   );
 
   return {
+    previousLead: lead,
     lead: updatedLead,
     previousStatus: oldStatus,
     newStatus,
