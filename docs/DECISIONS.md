@@ -417,6 +417,7 @@
   6. Only customer-contact activities such as calls, WhatsApp, email, and meetings update `last_contacted_at`; internal notes do not.
   7. Higher-level sales execution logic lives in the dedicated `sales` module rather than expanding CRM entity services indefinitely.
 - **Rationale:** This creates a single source of truth for follow-up work, makes pipeline leakage measurable, preserves tenant isolation, and gives future SLA, automation, analytics, and AI features a modular sales boundary.
+
 ---
 
 ### ADR-025: Sales Domain Ownership — Lead Is the Person, Opportunity Is the Commercial Deal
