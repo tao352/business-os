@@ -13,6 +13,7 @@ import type {
   WhatsAppWebhookPayload,
 } from "@business-os/types";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import { recordInitialLeadStageInTransaction } from "../crm/lead-lifecycle.js";
 import { triggerRules } from "../rules/rule-runner.js";
 import {
   WhatsAppApiClient,
@@ -400,6 +401,19 @@ export async function processWhatsAppWebhookPayload(
               ],
             );
             const newLead = newLeadRes.rows[0];
+
+            await recordInitialLeadStageInTransaction(
+              tx,
+              systemContext,
+              newLead.id,
+              "NEW",
+              {
+                source: "whatsapp_inbound",
+                wamid,
+                phoneNumberId,
+              },
+            );
+
             targetLeadId = newLead.id;
             result.leadsCreated++;
             newlyCreatedLead = newLead;
