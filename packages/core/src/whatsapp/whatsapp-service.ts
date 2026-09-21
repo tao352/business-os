@@ -388,22 +388,18 @@ export async function processWhatsAppWebhookPayload(
             result.leadsUpdated++;
           } else {
             // Create new lead from WhatsApp inbound message
-            const newLead = await createLeadInTransaction(
-              tx,
-              systemContext,
-              {
-                fullName: `WhatsApp Contact (${senderPhone})`,
-                phone: senderPhone,
-                status: "NEW",
-                source: "WHATSAPP",
-                customData: { initial_channel: "whatsapp" },
-                initialStageMetadata: {
-                  source: "whatsapp_inbound",
-                  wamid,
-                  phoneNumberId,
-                },
+            const newLead = await createLeadInTransaction(tx, systemContext, {
+              fullName: `WhatsApp Contact (${senderPhone})`,
+              phone: senderPhone,
+              status: "NEW",
+              source: "WHATSAPP",
+              customData: { initial_channel: "whatsapp" },
+              initialStageMetadata: {
+                source: "whatsapp_inbound",
+                wamid,
+                phoneNumberId,
               },
-            );
+            });
 
             targetLeadId = newLead.id;
             result.leadsCreated++;
