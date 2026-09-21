@@ -113,7 +113,7 @@ describe("Phase 14: Marketing Attribution & Executive Dashboard Engine (Live Tes
     const unit1 = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "VYE-Villa-01",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 20000000,
       grossArea: 350,
     });

@@ -366,6 +366,10 @@ export interface ProjectOverviewItem {
   name: string;
   location: string;
   description?: string | null;
+  project_type: string;
+  construction_status: string;
+  sales_status: string;
+  is_active: boolean;
   total_units: number;
   units_count: number;
   available_units: number;
@@ -374,7 +378,6 @@ export interface ProjectOverviewItem {
 
 /**
  * Retrieves projects portfolio with truthfully aggregated unit counts.
- * Note: Does not invent or fabricate non-existent project status columns.
  */
 export async function listProjectsOverview(
   context: TenantContext,
@@ -383,7 +386,9 @@ export async function listProjectsOverview(
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const res = await tx.query(`
-      SELECT p.id, p.name, p.location, p.description, p.total_units, p.created_at,
+      SELECT p.id, p.name, p.location, p.description, p.project_type,
+             p.construction_status, p.sales_status, p.is_active,
+             p.total_units, p.created_at,
              COUNT(u.id)::int as units_count,
              COUNT(u.id) FILTER (WHERE u.status = 'AVAILABLE')::int as available_units
       FROM projects p
@@ -397,6 +402,10 @@ export async function listProjectsOverview(
       name: row.name,
       location: row.location,
       description: row.description,
+      project_type: row.project_type || "COMMERCIAL",
+      construction_status: row.construction_status || "UNDER_CONSTRUCTION",
+      sales_status: row.sales_status || "SELLING",
+      is_active: Boolean(row.is_active),
       total_units: Number(row.total_units) || 0,
       units_count: Number(row.units_count) || 0,
       available_units: Number(row.available_units) || 0,
@@ -414,16 +423,25 @@ export interface ListUnitsInventoryFilters {
   pageSize?: number;
   projectId?: string;
   status?: string;
+  usageType?: string;
+  unitType?: string;
+  floor?: string;
+  minPrice?: number;
+  maxPrice?: number;
 }
 
 export interface UnitInventoryItem {
   id: string;
   unit_number: string;
+  usage_type: string;
   unit_type: string;
+  model_name?: string | null;
+  floor?: string | null;
   gross_area: number;
   price: number;
   currency: string;
   status: string;
+  is_active: boolean;
   project_name: string;
   project_id: string;
 }
@@ -463,6 +481,31 @@ export async function listUnitsInventory(
       params.push(filters.status);
     }
 
+    if (filters.usageType) {
+      conditions.push(`u.usage_type = $${idx++}`);
+      params.push(filters.usageType);
+    }
+
+    if (filters.unitType) {
+      conditions.push(`u.unit_type = $${idx++}`);
+      params.push(filters.unitType);
+    }
+
+    if (filters.floor) {
+      conditions.push(`u.floor = $${idx++}`);
+      params.push(filters.floor);
+    }
+
+    if (filters.minPrice !== undefined) {
+      conditions.push(`u.price >= $${idx++}`);
+      params.push(filters.minPrice);
+    }
+
+    if (filters.maxPrice !== undefined) {
+      conditions.push(`u.price <= $${idx++}`);
+      params.push(filters.maxPrice);
+    }
+
     const whereClause = conditions.join(" AND ");
 
     const countRes = await tx.query(
@@ -472,8 +515,8 @@ export async function listUnitsInventory(
     const totalCount = parseInt(countRes.rows[0]?.total || "0", 10);
 
     const dataRes = await tx.query(
-      `SELECT u.id, u.unit_number, u.unit_type, u.gross_area, u.price,
-              u.currency, u.status, u.project_id, p.name as project_name
+      `SELECT u.id, u.unit_number, u.usage_type, u.unit_type, u.model_name, u.floor, u.gross_area, u.price,
+              u.currency, u.status, u.is_active, u.project_id, p.name as project_name
        FROM units u
        JOIN projects p ON p.id = u.project_id
        WHERE ${whereClause}
@@ -485,11 +528,15 @@ export async function listUnitsInventory(
     const units: UnitInventoryItem[] = dataRes.rows.map((row) => ({
       id: row.id,
       unit_number: row.unit_number,
-      unit_type: row.unit_type,
+      usage_type: row.usage_type || "COMMERCIAL",
+      unit_type: row.unit_type || "RETAIL_STORE",
+      model_name: row.model_name,
+      floor: row.floor,
       gross_area: Number(row.gross_area) || 0,
       price: Number(row.price) || 0,
       currency: row.currency || "EGP",
       status: row.status,
+      is_active: Boolean(row.is_active),
       project_name: row.project_name,
       project_id: row.project_id,
     }));
@@ -500,6 +547,223 @@ export async function listUnitsInventory(
       page: currentPage,
       pageSize,
     };
+  });
+}
+
+// ==============================================================================
+// 5.1 LEAD INVENTORY MATCHING ENGINE READ MODEL (1:N DETERMINISTIC MATCHING)
+// ==============================================================================
+
+export interface MatchedUnitItem extends UnitInventoryItem {
+  matchScore: number;
+  matchReasons: string[];
+}
+
+/**
+ * Deterministic lead inventory matching engine.
+ * Matches available inventory against active lead property interests (1:N).
+ * Ranks matched units by composite satisfaction without subjective lead scoring.
+ */
+export async function getLeadMatchedUnits(
+  context: TenantContext,
+  leadId: string,
+): Promise<MatchedUnitItem[]> {
+  assertCanAccessIndividualLeadRecords(context);
+
+  return await withTenantContext(context.organizationId, async (tx) => {
+    // 1. Fetch Lead and enforce row-level ownership
+    const leadRes = await tx.query<{
+      id: string;
+      assigned_user_id: string | null;
+    }>(
+      `SELECT id, assigned_user_id FROM leads WHERE organization_id = $1 AND id = $2`,
+      [context.organizationId, leadId],
+    );
+    const lead = leadRes.rows[0];
+    if (!lead) {
+      throw new Error(`Lead '${leadId}' not found`);
+    }
+
+    assertCanAccessIndividualLeadRecords(context, lead);
+    assertPermission(context, "read", "lead", lead);
+
+    // 2. Fetch Active Property Interests for this Lead
+    const interestsRes = await tx.query(
+      `
+      SELECT * FROM lead_property_interests
+      WHERE organization_id = $1 AND lead_id = $2 AND status = 'ACTIVE'
+      ORDER BY is_primary DESC, created_at DESC
+    `,
+      [context.organizationId, leadId],
+    );
+
+    const activeInterests = interestsRes.rows;
+    if (activeInterests.length === 0) {
+      return [];
+    }
+
+    // 3. Fetch Available Units with Project metadata
+    const unitsRes = await tx.query(
+      `
+      SELECT u.id, u.unit_number, u.usage_type, u.unit_type, u.model_name, u.floor, u.gross_area,
+             u.price, u.currency, u.status, u.is_active, u.project_id, p.name as project_name
+      FROM units u
+      JOIN projects p ON p.id = u.project_id
+      WHERE u.organization_id = $1 AND u.status = 'AVAILABLE' AND u.is_active = true
+      ORDER BY u.unit_number ASC
+    `,
+      [context.organizationId],
+    );
+
+    const availableUnits = unitsRes.rows;
+    const matchedUnits: MatchedUnitItem[] = [];
+
+    for (const row of availableUnits) {
+      const unit: UnitInventoryItem = {
+        id: row.id,
+        unit_number: row.unit_number,
+        usage_type: row.usage_type || "COMMERCIAL",
+        unit_type: row.unit_type || "RETAIL_STORE",
+        model_name: row.model_name,
+        floor: row.floor,
+        gross_area: Number(row.gross_area) || 0,
+        price: Number(row.price) || 0,
+        currency: row.currency || "EGP",
+        status: row.status,
+        is_active: Boolean(row.is_active),
+        project_name: row.project_name,
+        project_id: row.project_id,
+      };
+
+      let bestScore = 0;
+      let bestReasons: string[] = [];
+
+      // Evaluate against all active interests for this lead; keep the best matching profile
+      for (const interest of activeInterests) {
+        let score = 0;
+        const reasons: string[] = [];
+
+        // Explicit Specific Unit Request
+        if (
+          interest.specific_unit_id &&
+          interest.specific_unit_id === unit.id
+        ) {
+          score += 50;
+          reasons.push("Specific unit requested by lead");
+        }
+
+        // Project Matching
+        if (interest.project_id && interest.project_id === unit.project_id) {
+          score += 30;
+          reasons.push(`Matches preferred project (${unit.project_name})`);
+        }
+
+        // Usage Type Matching (e.g. COMMERCIAL, MEDICAL, RESIDENTIAL)
+        if (interest.usage_type) {
+          const prefUsage = interest.usage_type.trim().toUpperCase();
+          const unitUsage = unit.usage_type.trim().toUpperCase();
+          if (prefUsage === unitUsage) {
+            score += 20;
+            reasons.push(`Matches preferred usage (${unit.usage_type})`);
+          }
+        }
+
+        // Unit Type Matching (e.g. CLINIC, APARTMENT, RETAIL_STORE)
+        if (interest.unit_type) {
+          const prefType = interest.unit_type.trim().toUpperCase();
+          const unitType = unit.unit_type.trim().toUpperCase();
+          if (prefType === unitType) {
+            score += 25;
+            reasons.push(`Matches preferred type (${unit.unit_type})`);
+          } else if (
+            unitType.includes(prefType) ||
+            prefType.includes(unitType)
+          ) {
+            score += 15;
+            reasons.push(`Similar type (${unit.unit_type})`);
+          }
+        }
+
+        // Budget Matching
+        const budgetMin =
+          interest.budget_min !== null && interest.budget_min !== undefined
+            ? Number(interest.budget_min)
+            : null;
+        const budgetMax =
+          interest.budget_max !== null && interest.budget_max !== undefined
+            ? Number(interest.budget_max)
+            : null;
+
+        if (budgetMin !== null && budgetMax !== null) {
+          if (unit.price >= budgetMin && unit.price <= budgetMax) {
+            score += 25;
+            reasons.push("Within target budget range");
+          } else if (unit.price <= budgetMax * 1.1) {
+            score += 10;
+            reasons.push("Slightly above target budget (< 10%)");
+          }
+        } else if (budgetMax !== null) {
+          if (unit.price <= budgetMax) {
+            score += 25;
+            reasons.push("Within maximum budget");
+          }
+        } else if (budgetMin !== null) {
+          if (unit.price >= budgetMin) {
+            score += 15;
+            reasons.push("Meets minimum budget");
+          }
+        }
+
+        // Area Matching
+        const areaMin =
+          interest.area_min !== null && interest.area_min !== undefined
+            ? Number(interest.area_min)
+            : null;
+        const areaMax =
+          interest.area_max !== null && interest.area_max !== undefined
+            ? Number(interest.area_max)
+            : null;
+
+        if (areaMin !== null && areaMax !== null) {
+          if (unit.gross_area >= areaMin && unit.gross_area <= areaMax) {
+            score += 20;
+            reasons.push("Within target area range");
+          }
+        } else if (areaMin !== null) {
+          if (unit.gross_area >= areaMin) {
+            score += 15;
+            reasons.push("Meets minimum area");
+          }
+        } else if (areaMax !== null) {
+          if (unit.gross_area <= areaMax) {
+            score += 15;
+            reasons.push("Within maximum area");
+          }
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestReasons = reasons;
+        }
+      }
+
+      if (bestScore > 0) {
+        matchedUnits.push({
+          ...unit,
+          matchScore: bestScore,
+          matchReasons: bestReasons,
+        });
+      }
+    }
+
+    matchedUnits.sort(
+      (a, b) =>
+        b.matchScore - a.matchScore ||
+        a.price - b.price ||
+        a.unit_number.localeCompare(b.unit_number) ||
+        a.id.localeCompare(b.id),
+    );
+    return matchedUnits;
   });
 }
 

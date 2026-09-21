@@ -110,7 +110,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
     const unit1 = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "V-201",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 25000000,
       grossArea: 350,
     });
@@ -118,7 +118,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
     const unit2 = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "V-202",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 30000000,
       grossArea: 420,
     });
@@ -297,7 +297,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
   describe("4. Master Scheduled Scanner & Audit Logging", () => {
     it("executes runAllScheduledScanners and logs job execution in scheduled_job_runs", async () => {
       const results = await runAllScheduledScanners(orgAContext);
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
 
       // Verify scheduled_job_runs table
       const runs = await withTenantContext(
@@ -311,7 +311,7 @@ describe("Phase 12: Inactivity & Time-based Triggers Engine (Live Tests)", () =>
         },
       );
 
-      expect(runs.length).toBeGreaterThanOrEqual(3);
+      expect(runs.length).toBeGreaterThanOrEqual(4);
       expect(runs[0].status).toBe("COMPLETED");
     });
   });

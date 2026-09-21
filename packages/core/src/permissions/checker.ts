@@ -57,14 +57,8 @@ export function can(
       }
     }
 
-    if (resource === "reservation" && targetEntity) {
-      if (
-        targetEntity.assigned_user_id &&
-        targetEntity.assigned_user_id !== userId
-      ) {
-        return false;
-      }
-    }
+    // Reservation row visibility is derived from the associated Lead assignment.
+    // Reservation services enforce that relationship explicitly after loading the Lead.
   }
 
   return true;

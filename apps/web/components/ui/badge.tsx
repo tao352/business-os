@@ -5,7 +5,15 @@ import type { LeadStatus } from "@business-os/types";
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   status?: LeadStatus | "DEFAULT" | "ACTIVE" | "INACTIVE";
-  variant?: "neutral" | "info" | "success" | "warning" | "error" | "purple";
+  variant?:
+    | "neutral"
+    | "info"
+    | "success"
+    | "warning"
+    | "error"
+    | "purple"
+    | "outline"
+    | "default";
 }
 
 export function Badge({
@@ -68,6 +76,10 @@ export function Badge({
       case "purple":
         style = "bg-purple-50 text-purple-700 border-purple-200";
         break;
+      case "outline":
+        style = "bg-transparent text-zinc-700 border-zinc-300";
+        break;
+      case "default":
       case "neutral":
       default:
         style = "bg-zinc-100 text-zinc-700 border-zinc-200";

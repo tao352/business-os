@@ -54,7 +54,8 @@ export async function retrieveGroundedContext(
 
       if (options.unitId) {
         const unitRes = await tx.query(
-          `SELECT u.id, u.unit_number, u.unit_type, u.price, u.status, u.gross_area,
+          `SELECT u.id, u.unit_number, u.usage_type, u.unit_type, u.model_name, u.floor,
+                  u.price, u.status, u.gross_area,
                   p.name AS project_name, p.location AS project_location
            FROM units u
            LEFT JOIN projects p ON u.project_id = p.id

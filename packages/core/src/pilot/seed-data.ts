@@ -16,102 +16,113 @@ export interface SeededRealEstateData {
 }
 
 /**
- * Seeds high-fidelity Egyptian real estate commercial data for pilot tenants (Section 55 & 67).
+ * Seeds synthetic real estate domain test fixtures for pilot validation.
+ * Uses strictly synthetic, non-fabricated fixtures (no invented developer metadata).
  */
 export async function seedPilotRealEstateData(
   context: TenantContext,
 ): Promise<SeededRealEstateData> {
   logger.info(
     { organizationId: context.organizationId },
-    "Seeding pilot real estate data",
+    "Seeding synthetic pilot real estate data",
   );
 
-  // 1. Seed Projects
-  const tajCity = await createProject(context, {
-    name: "كمبوند تاج سيتي (Taj City) - التجمع الخامس",
-    location: "القاهرة الجديدة، الطريق الدائري أمام فندق ماريوت",
-    description: "مشروع سكني تجاري متكامل على مساحة 3.5 مليون متر مربع",
-    totalUnits: 1500,
+  // 1. Seed Synthetic Projects
+  const projectBeta = await createProject(context, {
+    name: "Test Residential Project Beta",
+    location: "District Zone 1",
+    description: "Synthetic residential compound test fixture",
+    projectType: "RESIDENTIAL",
+    constructionStatus: "UNDER_CONSTRUCTION",
+    salesStatus: "SELLING",
+    totalUnits: 120,
   });
 
-  const sarai = await createProject(context, {
-    name: "كمبوند سراي (Sarai) - طريق السويس",
-    location: "القاهرة الجديدة، طريق القاهرة - السويس بجوار مدينتي",
-    description:
-      "مجتمع سكني حديث يتميز ببحيرات كريستالية لاجون ومساحات خضراء شاسعة",
-    totalUnits: 2200,
+  const complexGamma = await createProject(context, {
+    name: "Test Commercial Complex Gamma",
+    location: "Commercial Zone 2",
+    description: "Synthetic commercial complex test fixture",
+    projectType: "COMMERCIAL",
+    constructionStatus: "UNDER_CONSTRUCTION",
+    salesStatus: "SELLING",
+    totalUnits: 80,
   });
 
-  // 2. Seed Units in Taj City
-  const villa = await createUnit(context, {
-    projectId: tajCity.id,
-    unitNumber: "V-101",
-    unitType: "VILLA",
-    grossArea: 320,
-    price: 18500000,
-    currency: "EGP",
-    status: "AVAILABLE",
-  });
-
-  const twinHouse = await createUnit(context, {
-    projectId: tajCity.id,
-    unitNumber: "TH-202",
-    unitType: "TWIN_HOUSE",
-    grossArea: 240,
-    price: 14200000,
-    currency: "EGP",
-    status: "AVAILABLE",
-  });
-
-  const apartment = await createUnit(context, {
-    projectId: sarai.id,
-    unitNumber: "APT-305",
+  // 2. Seed Synthetic Units
+  const unitA = await createUnit(context, {
+    projectId: projectBeta.id,
+    unitNumber: "Test Unit A-101",
+    usageType: "RESIDENTIAL",
     unitType: "APARTMENT",
-    grossArea: 155,
-    price: 7800000,
+    modelName: "Model A",
+    grossArea: 140,
+    price: 4500000,
     currency: "EGP",
     status: "AVAILABLE",
   });
 
-  // 3. Seed Marketing Campaign & Realistic Leads
+  const unitB = await createUnit(context, {
+    projectId: projectBeta.id,
+    unitNumber: "Test Unit B-202",
+    usageType: "RESIDENTIAL",
+    unitType: "DUPLEX",
+    modelName: "Model B",
+    grossArea: 210,
+    price: 7200000,
+    currency: "EGP",
+    status: "AVAILABLE",
+  });
+
+  const unitC = await createUnit(context, {
+    projectId: complexGamma.id,
+    unitNumber: "Test Unit C-303",
+    usageType: "COMMERCIAL",
+    unitType: "RETAIL_STORE",
+    modelName: "Model C",
+    grossArea: 85,
+    price: 3800000,
+    currency: "EGP",
+    status: "AVAILABLE",
+  });
+
+  // 3. Seed Synthetic Marketing Campaign & Synthetic Leads
   await logCampaignSpend(context, {
-    campaignId: "cmp_taj_launch_2026",
-    campaignName: "إطلاق مرحلة الفيلات - تاج سيتي",
+    campaignId: "cmp_synthetic_test_01",
+    campaignName: "Synthetic Marketing Campaign",
     source: "FACEBOOK_LEAD_ADS",
-    spendAmount: 250000,
+    spendAmount: 150000,
     spendDate: "2026-09-01",
   });
 
   const lead1 = await createLead(context, {
-    fullName: "المهندس هاني عزب",
-    phone: "+201011112222",
-    email: "hany.azab@arabcontractors.eg",
+    fullName: "Test Customer 1",
+    phone: "+201000000001",
+    email: "test.customer1@example.com",
     source: "FACEBOOK_LEAD_ADS",
-    campaignId: "cmp_taj_launch_2026",
+    campaignId: "cmp_synthetic_test_01",
     status: "NEW",
   });
 
   const lead2 = await createLead(context, {
-    fullName: "الدكتورة سمر كمال",
-    phone: "+201122223333",
-    email: "dr.samar@cairo-cure.eg",
+    fullName: "Test Customer 2",
+    phone: "+201000000002",
+    email: "test.customer2@example.com",
     source: "WHATSAPP",
     status: "CONTACTED",
   });
 
   const lead3 = await createLead(context, {
-    fullName: "الأستاذ عمرو دياب",
-    phone: "+201233334444",
-    email: "amr.diab@media-group.eg",
+    fullName: "Test Customer 3",
+    phone: "+201000000003",
+    email: "test.customer3@example.com",
     source: "REFERRAL",
     status: "QUALIFIED",
   });
 
   // 4. Seed Core Smart Automation Rule
   const autoAssignRule = await createRule(context, {
-    name: "توزيع الليدات الواردة تلقائياً بالتناوب العادل",
-    description:
-      "توزيع فوري للعملاء الجدد على أعضاء فريق المبيعات بنظام Round-Robin",
+    name: "Synthetic Round Robin Distribution Rule",
+    description: "Automated assignment of inbound leads among sales reps",
     trigger_type: "lead.created",
     conditions: [],
     actions: [
@@ -123,14 +134,14 @@ export async function seedPilotRealEstateData(
     ],
   });
 
-  // 5. Generate Standard 8-Year Real Estate Payment Schedule
+  // 5. Generate Standard Real Estate Payment Schedule
   const paymentPlanSample = generatePaymentSchedule({
-    totalPrice: Number(villa.price),
+    totalPrice: Number(unitA.price),
     downPaymentPercent: 10,
-    installmentsYears: 8,
+    installmentsYears: 5,
     frequency: "QUARTERLY",
     startDate: "2026-10-01",
-    deliveryDate: "2029-10-01",
+    deliveryDate: "2028-10-01",
     deliveryPaymentPercent: 10,
   });
 
@@ -141,12 +152,12 @@ export async function seedPilotRealEstateData(
       unitsCount: 3,
       leadsCount: 3,
     },
-    "Pilot real estate seed data successfully created",
+    "Synthetic pilot real estate seed data successfully created",
   );
 
   return {
-    projects: [tajCity, sarai],
-    units: [villa, twinHouse, apartment],
+    projects: [projectBeta, complexGamma],
+    units: [unitA, unitB, unitC],
     leads: [lead1, lead2, lead3],
     rules: [autoAssignRule],
     paymentPlanSample,

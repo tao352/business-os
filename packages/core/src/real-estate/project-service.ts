@@ -3,6 +3,9 @@ import { logger } from "@business-os/logger";
 import {
   type TenantContext,
   type Project,
+  type ProjectType,
+  type ConstructionStatus,
+  type SalesStatus,
   ProjectSchema,
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
@@ -12,6 +15,10 @@ export interface CreateProjectInput {
   name: string;
   location: string;
   description?: string;
+  projectType?: ProjectType;
+  constructionStatus?: ConstructionStatus;
+  salesStatus?: SalesStatus;
+  isActive?: boolean;
   totalUnits?: number;
   customData?: Record<string, unknown>;
 }
@@ -20,8 +27,19 @@ export interface UpdateProjectInput {
   name?: string;
   location?: string;
   description?: string;
+  projectType?: ProjectType;
+  constructionStatus?: ConstructionStatus;
+  salesStatus?: SalesStatus;
+  isActive?: boolean;
   totalUnits?: number;
   customData?: Record<string, unknown>;
+}
+
+export interface ListProjectsFilters {
+  isActive?: boolean;
+  projectType?: ProjectType;
+  constructionStatus?: ConstructionStatus;
+  salesStatus?: SalesStatus;
 }
 
 export async function createProject(
@@ -37,9 +55,13 @@ export async function createProject(
         name,
         location,
         description,
+        project_type,
+        construction_status,
+        sales_status,
+        is_active,
         total_units,
         custom_data
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `;
 
@@ -48,6 +70,10 @@ export async function createProject(
       input.name.trim(),
       input.location.trim(),
       input.description ?? null,
+      input.projectType ?? "COMMERCIAL",
+      input.constructionStatus ?? "UNDER_CONSTRUCTION",
+      input.salesStatus ?? "SELLING",
+      input.isActive ?? true,
       input.totalUnits ?? 0,
       JSON.stringify(input.customData ?? {}),
     ]);
@@ -90,10 +116,38 @@ export async function getProject(
   });
 }
 
-export async function listProjects(context: TenantContext): Promise<Project[]> {
+export async function listProjects(
+  context: TenantContext,
+  filters: ListProjectsFilters = {},
+): Promise<Project[]> {
   return await withTenantContext(context.organizationId, async (client) => {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (filters.isActive !== undefined) {
+      conditions.push(`is_active = $${idx++}`);
+      params.push(filters.isActive);
+    }
+    if (filters.projectType) {
+      conditions.push(`project_type = $${idx++}`);
+      params.push(filters.projectType);
+    }
+    if (filters.constructionStatus) {
+      conditions.push(`construction_status = $${idx++}`);
+      params.push(filters.constructionStatus);
+    }
+    if (filters.salesStatus) {
+      conditions.push(`sales_status = $${idx++}`);
+      params.push(filters.salesStatus);
+    }
+
+    const whereSql =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
     const res = await client.query<Project>(
-      `SELECT * FROM projects ORDER BY name ASC`,
+      `SELECT * FROM projects ${whereSql} ORDER BY name ASC`,
+      params,
     );
     return res.rows;
   });
@@ -131,6 +185,22 @@ export async function updateProject(
     if (input.description !== undefined) {
       updates.push(`description = $${idx++}`);
       params.push(input.description);
+    }
+    if (input.projectType !== undefined) {
+      updates.push(`project_type = $${idx++}`);
+      params.push(input.projectType);
+    }
+    if (input.constructionStatus !== undefined) {
+      updates.push(`construction_status = $${idx++}`);
+      params.push(input.constructionStatus);
+    }
+    if (input.salesStatus !== undefined) {
+      updates.push(`sales_status = $${idx++}`);
+      params.push(input.salesStatus);
+    }
+    if (input.isActive !== undefined) {
+      updates.push(`is_active = $${idx++}`);
+      params.push(input.isActive);
     }
     if (input.totalUnits !== undefined) {
       updates.push(`total_units = $${idx++}`);

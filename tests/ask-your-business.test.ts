@@ -79,7 +79,7 @@ describe("Phase 15: Ask Your Business (Text-to-SQL & Hybrid AI Assistant)", () =
     const villa1 = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "Villa-Uptown-10",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 22000000,
       grossArea: 380,
     });
@@ -87,7 +87,7 @@ describe("Phase 15: Ask Your Business (Text-to-SQL & Hybrid AI Assistant)", () =
     await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "Villa-Uptown-11",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 35000000,
       grossArea: 500,
     });

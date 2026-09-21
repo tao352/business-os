@@ -36,7 +36,7 @@ export default defineConfig({
 
           DATABASE_URL:
             process.env.DATABASE_URL ||
-            "postgres://app_user:app_password@localhost:5434/business_os",
+            "postgres://app_user:app_password@localhost:5432/business_os",
 
           CI: "true",
 
