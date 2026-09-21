@@ -337,7 +337,6 @@ export const ContractSchema = z.object({
   lead_id: z.string().uuid(),
   unit_id: z.string().uuid(),
   opportunity_id: z.string().uuid().nullable().optional(),
-  z.string().uuid(),
   contract_number: z.string().min(2).max(100),
   contract_value: z.number().positive(),
   currency: z.string().default("EGP"),
