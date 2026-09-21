@@ -15,6 +15,12 @@ import { autoDetectColumnMapping } from "./column-matcher.js";
 import { validateCustomData } from "../metadata/custom-fields-compiler.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
 import { assertPermission } from "../permissions/checker.js";
+import {
+  inferUsageTypeFromUnitType,
+  isUsageTypeCompatible,
+  normalizeUnitType,
+  normalizeUsageType,
+} from "../real-estate/unit-taxonomy.js";
 
 export interface ImportOptions {
   mappingOverrides?: ColumnMapping;
@@ -179,7 +185,11 @@ export async function validateAndDryRunImport(
         }
       } else if (entityType === "units") {
         const unitNumber = coreData.unit_number as string;
-        const unitType = (coreData.unit_type as string) || "Apartment";
+        const rawUnitType = String(coreData.unit_type ?? "").trim();
+        const unitType = normalizeUnitType(rawUnitType);
+        const rawUsageType = String(coreData.usage_type ?? "").trim();
+        const explicitUsageType = rawUsageType ? normalizeUsageType(rawUsageType) : null;
+        const usageType = explicitUsageType ?? (unitType ? inferUsageTypeFromUnitType(unitType) : null);
         const grossArea = parseFloat(String(coreData.gross_area || "0"));
         const price = parseFloat(String(coreData.price || "0"));
 
@@ -191,17 +201,26 @@ export async function validateAndDryRunImport(
           });
           continue;
         }
+        if (!unitType) {
+          errors.push({ rowNumber: rowNum, field: "unit_type", message: rawUnitType ? `Unsupported unit type '${rawUnitType}' — review mapping before import` : "Unit type is required" });
+          continue;
+        }
+        if (!usageType) {
+          errors.push({ rowNumber: rowNum, field: "usage_type", message: rawUsageType ? `Unsupported usage type '${rawUsageType}' — review mapping before import` : `Usage type is required for unit type '${unitType}'` });
+          continue;
+        }
+        if (explicitUsageType && !isUsageTypeCompatible(unitType, explicitUsageType)) {
+          errors.push({ rowNumber: rowNum, field: "usage_type", message: `Usage type '${explicitUsageType}' conflicts with unit type '${unitType}'` });
+          continue;
+        }
         if (isNaN(price) || price <= 0) {
-          errors.push({
-            rowNumber: rowNum,
-            field: "price",
-            message: "Price must be a positive number",
-          });
+          errors.push({ rowNumber: rowNum, field: "price", message: "Price must be a positive number" });
           continue;
         }
 
         coreData.unit_number = unitNumber;
         coreData.unit_type = unitType;
+        coreData.usage_type = usageType;
         coreData.gross_area =
           isNaN(grossArea) || grossArea <= 0 ? 100 : grossArea;
         coreData.price = price;
@@ -369,7 +388,12 @@ export async function executeImport(
         }
         const unitNumber = coreData.unit_number as string;
         const price = parseFloat(String(coreData.price || "0"));
-        if (!unitNumber || isNaN(price) || price <= 0) continue;
+        const unitType = normalizeUnitType(String(coreData.unit_type ?? ""));
+        const rawUsageType = String(coreData.usage_type ?? "").trim();
+        const explicitUsageType = rawUsageType ? normalizeUsageType(rawUsageType) : null;
+        const usageType = explicitUsageType ?? (unitType ? inferUsageTypeFromUnitType(unitType) : null);
+        if (!unitNumber || isNaN(price) || price <= 0 || !unitType || !usageType ||
+            (explicitUsageType && !isUsageTypeCompatible(unitType, explicitUsageType))) continue;
 
         const existing = await client.query<{ id: string }>(
           `SELECT id FROM units WHERE organization_id = $1 AND project_id = $2 AND unit_number = $3`,
@@ -384,15 +408,13 @@ export async function executeImport(
             // UPDATE
             await client.query(
               `UPDATE units
-               SET price = $1, gross_area = COALESCE($2, gross_area),
-                   custom_data = custom_data || $3::jsonb, updated_at = NOW()
-               WHERE id = $4`,
-              [
-                price,
-                coreData.gross_area ?? null,
-                JSON.stringify(customData),
-                existing.rows[0]!.id,
-              ],
+               SET unit_type = $1, usage_type = $2, price = $3,
+                   gross_area = COALESCE($4, gross_area),
+                   model_name = COALESCE($5, model_name),
+                   custom_data = custom_data || $6::jsonb, updated_at = NOW()
+               WHERE id = $7`,
+              [unitType, usageType, price, coreData.gross_area ?? null,
+               coreData.model_name ?? null, JSON.stringify(customData), existing.rows[0]!.id],
             );
             updatedCount++;
             continue;
@@ -401,26 +423,15 @@ export async function executeImport(
 
         // INSERT
         await client.query(
-          `INSERT INTO units (organization_id, project_id, unit_number, unit_type, gross_area, price, status, custom_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            context.organizationId,
-            options.projectId,
-            unitNumber,
-            coreData.unit_type ?? "Apartment",
-            coreData.gross_area ?? 100,
-            price,
-            coreData.status ?? "AVAILABLE",
-            JSON.stringify(customData),
-          ],
+          `INSERT INTO units (
+             organization_id, project_id, unit_number, usage_type, unit_type,
+             model_name, gross_area, price, status, custom_data
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [context.organizationId, options.projectId, unitNumber, usageType, unitType,
+           coreData.model_name ?? null, coreData.gross_area ?? 100, price,
+           String(coreData.status ?? "AVAILABLE").toUpperCase(), JSON.stringify(customData)],
         );
         importedCount++;
-
-        // Increment project total units
-        await client.query(
-          `UPDATE projects SET total_units = total_units + 1, updated_at = NOW() WHERE id = $1`,
-          [options.projectId],
-        );
       }
     }
 

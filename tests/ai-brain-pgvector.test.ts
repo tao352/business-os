@@ -18,6 +18,7 @@ import {
   deleteKnowledgeDocument,
   listKnowledgeDocuments,
   retrieveGroundedContext,
+  generateSqlForQuestion,
 } from "../packages/core/src/ai/index.js";
 
 describe("Phase 13: AI Brain & Vector Knowledge Engine (pgvector RAG)", () => {
@@ -101,11 +102,20 @@ describe("Phase 13: AI Brain & Vector Knowledge Engine (pgvector RAG)", () => {
     const unit = await createUnit(orgAContext, {
       projectId: project.id,
       unitNumber: "V-Badya-104",
-      unitType: "VILLA",
+      unitType: "STANDALONE_VILLA",
       price: 18500000,
       grossArea: 380,
     });
     unitAId = unit.id;
+  });
+
+  describe("Phase 22 unit taxonomy grounding", () => {
+    it("maps natural language to the authoritative unit taxonomy", () => {
+      const villaPlan = generateSqlForQuestion("عايز فيلا متاحة أقل من 20 مليون");
+      expect(villaPlan?.sql).toContain("u.unit_type = 'STANDALONE_VILLA'");
+      expect(villaPlan?.sql).not.toContain("u.unit_type = 'VILLA'");
+      expect(generateSqlForQuestion("وحدات طبية متاحة")?.sql).toContain("u.usage_type = 'MEDICAL'");
+    });
   });
 
   describe("1. Document Chunking Service", () => {

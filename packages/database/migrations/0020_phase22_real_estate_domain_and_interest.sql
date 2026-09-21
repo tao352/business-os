@@ -19,6 +19,54 @@ ALTER TABLE public.units
   ADD COLUMN IF NOT EXISTS floor VARCHAR(20),
   ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
+DO $$
+DECLARE invalid_values TEXT;
+BEGIN
+  SELECT string_agg(DISTINCT unit_type, ', ' ORDER BY unit_type) INTO invalid_values
+  FROM public.units
+  WHERE UPPER(REPLACE(TRIM(unit_type), '-', '_')) NOT IN (
+    'APARTMENT','DUPLEX','PENTHOUSE','STUDIO','STANDALONE_VILLA','STANDALONE VILLA','VILLA',
+    'TWIN_HOUSE','TWIN HOUSE','TWINHOUSE','TOWNHOUSE','TOWN_HOUSE','TOWN HOUSE',
+    'RETAIL_STORE','RETAIL STORE','SHOP','STORE','RETAIL','RESTAURANT_CAFE','RESTAURANT CAFE',
+    'PHARMACY','KIOSK','OFFICE','CLINIC','LABORATORY','LAB','OTHER',
+    'COMMERCIAL','RESIDENTIAL','ADMINISTRATIVE','MEDICAL'
+  );
+  IF invalid_values IS NOT NULL THEN
+    RAISE EXCEPTION 'Phase 22 unit taxonomy migration requires manual mapping for legacy unit_type values: %', invalid_values;
+  END IF;
+END $$;
+
+UPDATE public.units
+SET usage_type = CASE
+      WHEN UPPER(REPLACE(TRIM(unit_type), '-', '_')) IN ('APARTMENT','DUPLEX','PENTHOUSE','STUDIO','STANDALONE_VILLA','STANDALONE VILLA','VILLA','TWIN_HOUSE','TWIN HOUSE','TWINHOUSE','TOWNHOUSE','TOWN_HOUSE','TOWN HOUSE','RESIDENTIAL') THEN 'RESIDENTIAL'
+      WHEN UPPER(REPLACE(TRIM(unit_type), '-', '_')) IN ('CLINIC','LABORATORY','LAB','PHARMACY','MEDICAL') THEN 'MEDICAL'
+      WHEN UPPER(REPLACE(TRIM(unit_type), '-', '_')) IN ('OFFICE','ADMINISTRATIVE') THEN 'ADMINISTRATIVE'
+      ELSE 'COMMERCIAL'
+    END,
+    unit_type = CASE UPPER(REPLACE(TRIM(unit_type), '-', '_'))
+      WHEN 'VILLA' THEN 'STANDALONE_VILLA'
+      WHEN 'STANDALONE VILLA' THEN 'STANDALONE_VILLA'
+      WHEN 'TWIN HOUSE' THEN 'TWIN_HOUSE'
+      WHEN 'TWINHOUSE' THEN 'TWIN_HOUSE'
+      WHEN 'TOWN HOUSE' THEN 'TOWNHOUSE'
+      WHEN 'TOWN_HOUSE' THEN 'TOWNHOUSE'
+      WHEN 'RETAIL STORE' THEN 'RETAIL_STORE'
+      WHEN 'SHOP' THEN 'RETAIL_STORE'
+      WHEN 'STORE' THEN 'RETAIL_STORE'
+      WHEN 'RETAIL' THEN 'RETAIL_STORE'
+      WHEN 'RESTAURANT CAFE' THEN 'RESTAURANT_CAFE'
+      WHEN 'LAB' THEN 'LABORATORY'
+      WHEN 'COMMERCIAL' THEN 'OTHER'
+      WHEN 'RESIDENTIAL' THEN 'OTHER'
+      WHEN 'ADMINISTRATIVE' THEN 'OTHER'
+      WHEN 'MEDICAL' THEN 'OTHER'
+      ELSE UPPER(REPLACE(TRIM(unit_type), '-', '_'))
+    END;
+
+ALTER TABLE public.units
+  ADD CONSTRAINT chk_units_usage_type_phase22 CHECK (usage_type IN ('RESIDENTIAL','COMMERCIAL','ADMINISTRATIVE','MEDICAL')),
+  ADD CONSTRAINT chk_units_unit_type_phase22 CHECK (unit_type IN ('APARTMENT','DUPLEX','PENTHOUSE','STUDIO','STANDALONE_VILLA','TWIN_HOUSE','TOWNHOUSE','RETAIL_STORE','RESTAURANT_CAFE','PHARMACY','KIOSK','OFFICE','CLINIC','LABORATORY','OTHER'));
+
 CREATE INDEX IF NOT EXISTS idx_units_inventory_lookup
   ON public.units (organization_id, project_id, usage_type, unit_type, status);
 
@@ -91,7 +139,7 @@ CREATE POLICY tenant_isolation_lead_property_interests ON public.lead_property_i
   USING (organization_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
   WITH CHECK (organization_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
-GRANT ALL PRIVILEGES ON TABLE public.lead_property_interests TO app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.lead_property_interests TO app_user;
 
 -- 4. Database-Level Reservation Concurrency Protection (Prevent Double-Booking)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_unit_reservation

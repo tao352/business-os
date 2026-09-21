@@ -12,6 +12,7 @@ import {
   createOrganization,
   listLeads,
   listUnits,
+  getProject,
 } from "../packages/core/src/index.js";
 import type { TenantContext } from "@business-os/types";
 
@@ -74,10 +75,12 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       expect(mapping["البريد الالكتروني"]).toBe("email");
       expect(mapping["الميزانية"]).toBe("budget");
 
-      const unitHeaders = ["رقم الوحدة", "نوع الوحدة", "المساحة", "السعر"];
+      const unitHeaders = ["رقم الوحدة", "نوع الوحدة", "الاستخدام", "نموذج", "المساحة", "السعر"];
       const unitMapping = autoDetectColumnMapping("units", unitHeaders);
       expect(unitMapping["رقم الوحدة"]).toBe("unit_number");
       expect(unitMapping["نوع الوحدة"]).toBe("unit_type");
+      expect(unitMapping["الاستخدام"]).toBe("usage_type");
+      expect(unitMapping["نموذج"]).toBe("model_name");
       expect(unitMapping["المساحة"]).toBe("gross_area");
       expect(unitMapping["السعر"]).toBe("price");
     });
@@ -226,7 +229,7 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       expect(leadsAfterUpdate[0]?.email).toBe("newhassan@test.com");
     });
 
-    it("should batch import real estate units and update project total units", async () => {
+    it("should normalize imported unit taxonomy without mutating declared project total_units", async () => {
       const unitsCsv =
         `Unit #,Type,Area,Price\n` +
         `U-201,Apartment,140,2800000\n` +
@@ -246,6 +249,23 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       expect(units.map((u) => u.unit_number)).toEqual(
         expect.arrayContaining(["U-201", "U-202", "U-203"]),
       );
+      expect(units.map((u) => u.unit_type)).toEqual(
+        expect.arrayContaining(["APARTMENT", "DUPLEX", "PENTHOUSE"]),
+      );
+      expect(units.every((u) => u.usage_type === "RESIDENTIAL")).toBe(true);
+      expect((await getProject(orgAContext, projectId))?.total_units).toBe(0);
+    });
+
+    it("should reject unknown or contradictory unit taxonomy instead of silently importing it", async () => {
+      const unknown = "Unit #,Type,Area,Price\nU-BAD,Something Ambiguous,100,1500000";
+      const unknownDryRun = await validateAndDryRunImport(orgAContext, "units", unknown, { projectId });
+      expect(unknownDryRun.validRowsCount).toBe(0);
+      expect(unknownDryRun.errors[0]?.field).toBe("unit_type");
+
+      const contradictory = "Unit #,Type,Usage,Area,Price\nU-WRONG,Apartment,Commercial,120,2000000";
+      const contradictionDryRun = await validateAndDryRunImport(orgAContext, "units", contradictory, { projectId });
+      expect(contradictionDryRun.validRowsCount).toBe(0);
+      expect(contradictionDryRun.errors[0]?.field).toBe("usage_type");
     });
 
     it("should export filtered entity records to Excel-ready CSV with UTF-8 BOM", async () => {

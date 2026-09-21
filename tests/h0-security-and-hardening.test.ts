@@ -464,6 +464,23 @@ describe("H0 Foundation Audit & Hardening Regression Test Suite", () => {
       expect(res.rows[0].rolbypassrls).toBe(false);
     });
 
+    it("should grant only DML privileges on Phase 22 lead property interests", async () => {
+      const res = await pool.query(
+        `SELECT
+          has_table_privilege('app_user','public.lead_property_interests','SELECT') AS can_select,
+          has_table_privilege('app_user','public.lead_property_interests','INSERT') AS can_insert,
+          has_table_privilege('app_user','public.lead_property_interests','UPDATE') AS can_update,
+          has_table_privilege('app_user','public.lead_property_interests','DELETE') AS can_delete,
+          has_table_privilege('app_user','public.lead_property_interests','TRUNCATE') AS can_truncate,
+          has_table_privilege('app_user','public.lead_property_interests','REFERENCES') AS can_references,
+          has_table_privilege('app_user','public.lead_property_interests','TRIGGER') AS can_trigger`,
+      );
+      expect(res.rows[0]).toMatchObject({
+        can_select:true,can_insert:true,can_update:true,can_delete:true,
+        can_truncate:false,can_references:false,can_trigger:false,
+      });
+    });
+
     it("should prevent app_user from executing DDL operations on public schema", async () => {
       const appClient = new Client({
         connectionString:
