@@ -195,6 +195,35 @@ describe("Phase 8: Robust Import & Export Engine (Excel / CSV)", () => {
       expect(dryRun.sampleValidRows[0]?.["full_name"]).toBe("عمر الشريف");
     });
 
+    it("should reject an invalid imported Lead status during dry-run and execution", async () => {
+      const invalidStatusCsv =
+        `Full Name,Phone,Status\n` +
+        `Bad Status Lead,01012349876,NOT_A_REAL_STATUS`;
+
+      const dryRun = await validateAndDryRunImport(
+        orgAContext,
+        "leads",
+        invalidStatusCsv,
+      );
+
+      expect(dryRun.validRowsCount).toBe(0);
+      expect(dryRun.errorRowsCount).toBe(1);
+      expect(dryRun.errors[0]?.field).toBe("status");
+
+      const execution = await executeImport(
+        orgAContext,
+        "leads",
+        invalidStatusCsv,
+      );
+      expect(execution.importedCount).toBe(0);
+      expect(execution.failedCount).toBe(1);
+
+      const leads = await listLeads(orgAContext, {
+        search: "01012349876",
+      });
+      expect(leads).toHaveLength(0);
+    });
+
     it("should batch import leads and handle duplicate strategies (SKIP vs UPDATE)", async () => {
       const batchCsv =
         `Full Name,Phone,Email,budget\n` +
