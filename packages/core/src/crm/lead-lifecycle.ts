@@ -1,7 +1,8 @@
-import type {
-  LeadClosureReason,
-  LeadStatus,
-  TenantContext,
+import {
+  LeadStatusSchema,
+  type LeadClosureReason,
+  type LeadStatus,
+  type TenantContext,
 } from "@business-os/types";
 import { assertPermission } from "../permissions/checker.js";
 import type { TransactionClient } from "./audit-helper.js";
@@ -23,6 +24,69 @@ export interface LeadStageTransitionResult {
   changed: boolean;
   reasonCode: LeadClosureReason | null;
   reasonNotes: string | null;
+}
+
+export interface CreateLeadInTransactionInput {
+  fullName: string;
+  phone: string;
+  email?: string | null;
+  status?: LeadStatus;
+  assignedUserId?: string | null;
+  campaignId?: string | null;
+  source?: string;
+  customData?: Record<string, unknown>;
+  initialStageMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Creates the Lead row and its initial pipeline history atomically.
+ *
+ * This is the low-level creation primitive for every ingestion path
+ * (manual entry, Meta, WhatsApp, import, API). It deliberately does not perform
+ * authorization, custom-field validation, audit logging, or timeline activity;
+ * those belong to the calling use case.
+ */
+export async function createLeadInTransaction(
+  tx: TransactionClient,
+  context: TenantContext,
+  input: CreateLeadInTransactionInput,
+): Promise<Record<string, unknown>> {
+  const status = LeadStatusSchema.parse(input.status ?? "NEW");
+  const source = input.source?.trim() || "MANUAL";
+
+  const res = await tx.query(
+    `INSERT INTO leads (
+      organization_id, full_name, phone, email, status,
+      assigned_user_id, campaign_id, source, custom_data
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *`,
+    [
+      context.organizationId,
+      input.fullName.trim(),
+      input.phone.trim(),
+      input.email?.trim() || null,
+      status,
+      input.assignedUserId || null,
+      input.campaignId || null,
+      source,
+      JSON.stringify(input.customData ?? {}),
+    ],
+  );
+
+  const lead = res.rows[0] as Record<string, unknown> | undefined;
+  if (!lead) {
+    throw new Error("Failed to create lead");
+  }
+
+  await recordInitialLeadStageInTransaction(
+    tx,
+    context,
+    String(lead.id),
+    status,
+    input.initialStageMetadata ?? { source: "lead_created" },
+  );
+
+  return lead;
 }
 
 export const ALLOWED_LEAD_STATUS_TRANSITIONS: Record<
