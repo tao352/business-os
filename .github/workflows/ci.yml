@@ -67,6 +67,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Phase 23 Prettier Debug Output
+        run: |
+          for file in \
+            apps/web/features/leads/change-status-dialog.tsx \
+            packages/core/src/crm/lead-service.ts \
+            packages/core/src/sales/pipeline-health-service.ts \
+            tests/phase23-sales-execution.test.ts
+          do
+            echo "===== PRETTIER_FILE_START:$file ====="
+            pnpm exec prettier "$file"
+            echo "===== PRETTIER_FILE_END:$file ====="
+          done
+
       - name: Verify Code Formatting
         run: pnpm run format:check
 
