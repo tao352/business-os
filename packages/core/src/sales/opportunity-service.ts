@@ -51,7 +51,9 @@ export interface ListOpportunitiesFilters {
   assignedUserId?: string;
 }
 
-function assertOpportunityStage(value: string): asserts value is OpportunityStage {
+function assertOpportunityStage(
+  value: string,
+): asserts value is OpportunityStage {
   if (!OPPORTUNITY_STAGES.includes(value as OpportunityStage)) {
     throw new Error(`Invalid Opportunity stage '${value}'`);
   }
