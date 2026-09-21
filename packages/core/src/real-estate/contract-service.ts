@@ -312,6 +312,8 @@ export async function listContracts(
   context: TenantContext,
   filters: ListContractsFilters = {},
 ): Promise<Contract[]> {
+  assertPermission(context, "read", "contract");
+
   return await withTenantContext(context.organizationId, async (client) => {
     const whereClauses: string[] = [];
     const params: unknown[] = [];
