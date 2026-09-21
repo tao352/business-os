@@ -198,6 +198,7 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       page.locator('aside a[href="/app/projects"]'),
     ).not.toBeVisible();
     await expect(page.locator('aside a[href="/app/units"]')).not.toBeVisible();
+    await expect(page.locator('aside a[href="/app/sales"]')).not.toBeVisible();
 
     // Navigate to /app/leads
     await page.goto("/app/leads");
@@ -219,6 +220,13 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       leadDetailRes?.status() === 404 ||
       (await page.locator("body").innerText()).includes("404");
     expect(isLeadDetail404).toBe(true);
+
+    // Negative Test: Direct navigation to sales command center MUST return 404 / not-found
+    const salesRes = await page.goto("/app/sales");
+    const isSales404 =
+      salesRes?.status() === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(isSales404).toBe(true);
 
     // Negative Test: Direct navigation to automations MUST return 404 / not-found
     const automationsRes = await page.goto("/app/automations");

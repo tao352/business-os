@@ -11,8 +11,10 @@ export type LeadFollowUpHealthState =
 export interface LeadFollowUpHealthRow {
   leadId: string;
   fullName: string;
+  source: string;
   status: LeadStatus;
   assignedUserId: string | null;
+  assignedName: string | null;
   lastContactedAt: string | Date | null;
   pipelineStageEnteredAt: string | Date;
   nextActionId: string | null;
@@ -85,8 +87,10 @@ export async function listLeadFollowUpHealth(
       `SELECT
          l.id AS lead_id,
          l.full_name,
+         l.source,
          l.status,
          l.assigned_user_id,
+         assignee.full_name AS assigned_name,
          l.last_contacted_at,
          l.pipeline_stage_entered_at,
          next_task.id AS next_action_id,
@@ -94,6 +98,7 @@ export async function listLeadFollowUpHealth(
          next_task.due_date AS next_action_at,
          ${healthExpression} AS health
        FROM leads l
+       LEFT JOIN users assignee ON assignee.id = l.assigned_user_id
        LEFT JOIN LATERAL (
          SELECT t.id, t.title, t.due_date
          FROM tasks t
@@ -119,8 +124,10 @@ export async function listLeadFollowUpHealth(
     return result.rows.map((row) => ({
       leadId: row.lead_id,
       fullName: row.full_name,
+      source: row.source,
       status: row.status,
       assignedUserId: row.assigned_user_id,
+      assignedName: row.assigned_name,
       lastContactedAt: row.last_contacted_at,
       pipelineStageEnteredAt: row.pipeline_stage_entered_at,
       nextActionId: row.next_action_id,

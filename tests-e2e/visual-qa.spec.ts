@@ -72,6 +72,7 @@ test.describe("Phase 21 Visual QA & Responsive Snapshot Suite", () => {
     const primaryRoutes = [
       { name: "app", path: "/app" },
       { name: "leads", path: "/app/leads" },
+      { name: "sales", path: "/app/sales" },
       { name: "lead-detail", path: `/app/leads/${fixtures.leadA.id}` },
     ];
 

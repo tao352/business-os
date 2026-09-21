@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronDown,
   Building,
+  Activity,
 } from "lucide-react";
 import type { SessionUser } from "@/lib/auth";
 
@@ -62,6 +63,9 @@ export function Sidebar({ session, onNavClick }: SidebarProps) {
   const workspaceItems = [
     { label: "Overview", href: "/app", icon: LayoutDashboard },
     { label: "Leads", href: "/app/leads", icon: Users },
+    ...(caps?.canReadSalesCommandCenter
+      ? [{ label: "Sales", href: "/app/sales", icon: Activity }]
+      : []),
     ...(caps?.canReadProjects
       ? [{ label: "Projects", href: "/app/projects", icon: Building2 }]
       : []),
