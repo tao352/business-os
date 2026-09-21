@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { LeadStatus, TenantContext, RuleAction } from "@business-os/types";
+import { LeadStatusSchema, type TenantContext, type RuleAction } from "@business-os/types";
 import type { TransactionClient } from "../crm/audit-helper.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { enqueueOutboxEvent } from "./outbox-service.js";
@@ -209,13 +209,23 @@ export async function executeRuleAction(
             error: "Action only applies to leads",
           };
         }
-        const newStatus = String(action.params.status || "CONTACTED");
+        const parsedStatus = LeadStatusSchema.safeParse(
+          action.params.status ?? "CONTACTED",
+        );
+        if (!parsedStatus.success) {
+          return {
+            action_type: action.action_type,
+            status: "FAILED",
+            error: "Invalid Lead status configured for automation",
+          };
+        }
+        const newStatus = parsedStatus.data;
 
         const transition = await transitionLeadStageInTransaction(
           tx,
           context,
           entityId,
-          newStatus as LeadStatus,
+          newStatus,
           {
             enforceTransition: false,
             metadata: {
@@ -227,22 +237,24 @@ export async function executeRuleAction(
         );
         entity.status = transition.lead.status as string;
 
-        await tx.query(
-          `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
-           VALUES ($1, $2, $3, 'STATUS_CHANGE', $4, $5)`,
-          [
-            context.organizationId,
-            entityId,
-            context.userId,
-            `Lead status changed to ${newStatus} via Automation`,
-            JSON.stringify({ ruleId, newStatus }),
-          ],
-        );
+        if (transition.changed) {
+          await tx.query(
+            `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
+             VALUES ($1, $2, $3, 'STATUS_CHANGE', $4, $5)`,
+            [
+              context.organizationId,
+              entityId,
+              context.userId,
+              `Lead status changed to ${newStatus} via Automation`,
+              JSON.stringify({ ruleId, newStatus }),
+            ],
+          );
+        }
 
         return {
           action_type: action.action_type,
           status: "SUCCESS",
-          result: { newStatus },
+          result: { newStatus, changed: transition.changed },
         };
       }
 
