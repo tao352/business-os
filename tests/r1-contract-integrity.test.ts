@@ -126,7 +126,6 @@ describe("R1 contract integrity", () => {
     });
   });
 
-
   it("keeps a reservation active for Draft contracts and converts it on signing", async () => {
     const suffix = crypto.randomBytes(4).toString("hex");
     const owner = await registerUser({
@@ -245,5 +244,4 @@ describe("R1 contract integrity", () => {
       leadStatus: "CONTRACTED",
     });
   });
-
 });
