@@ -28,20 +28,49 @@ export const createLeadSchema = z.object({
     .nullable(),
 });
 
-export const updateLeadStatusSchema = z.object({
-  leadId: z.string().uuid("Invalid lead ID"),
-  newStatus: z.enum([
-    "NEW",
-    "CONTACTED",
-    "QUALIFIED",
-    "MEETING_SCHEDULED",
-    "SITE_VISIT_BOOKED",
-    "RESERVED",
-    "CONTRACTED",
-    "UNQUALIFIED",
-    "LOST",
-  ]) as z.ZodType<LeadStatus>,
-});
+export const updateLeadStatusSchema = z
+  .object({
+    leadId: z.string().uuid("Invalid lead ID"),
+    newStatus: z.enum([
+      "NEW",
+      "CONTACTED",
+      "QUALIFIED",
+      "MEETING_SCHEDULED",
+      "SITE_VISIT_BOOKED",
+      "RESERVED",
+      "CONTRACTED",
+      "UNQUALIFIED",
+      "LOST",
+    ]) as z.ZodType<LeadStatus>,
+    lostReasonCode: z
+      .enum([
+        "PRICE",
+        "FINANCING",
+        "UNIT_NOT_AVAILABLE",
+        "LOCATION",
+        "TIMING",
+        "COMPETITOR",
+        "NO_RESPONSE",
+        "NOT_QUALIFIED",
+        "DUPLICATE",
+        "OTHER",
+      ])
+      .optional()
+      .nullable(),
+    lostReasonNotes: z.string().trim().max(1000).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (
+      (data.newStatus === "LOST" || data.newStatus === "UNQUALIFIED") &&
+      !data.lostReasonCode
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["lostReasonCode"],
+        message: "A reason is required when closing a lead",
+      });
+    }
+  });
 
 export const assignLeadSchema = z.object({
   leadId: z.string().uuid("Invalid lead ID"),
