@@ -27,6 +27,7 @@ export class UnitNotAvailableError extends Error {
 export interface CreateReservationInput {
   leadId: string;
   unitId: string;
+  opportunityId?: string;
   depositAmount: number;
   currency?: string;
   expiresAt: string; // ISO datetime
@@ -37,6 +38,7 @@ export interface CreateReservationInput {
 export interface ListReservationsFilters {
   leadId?: string;
   unitId?: string;
+  opportunityId?: string;
   status?: ReservationStatus;
 }
 
@@ -79,6 +81,28 @@ export async function createReservation(
 
     assertCanAccessIndividualLeadRecords(context, lead);
     assertPermission(context, "update", "lead", lead);
+
+    if (input.opportunityId) {
+      const opportunityRes = await client.query<{
+        id: string;
+        assigned_user_id: string | null;
+      }>(
+        `SELECT id, assigned_user_id
+         FROM deals
+         WHERE organization_id = $1 AND id = $2 AND lead_id = $3`,
+        [context.organizationId, input.opportunityId, input.leadId],
+      );
+      const opportunity = opportunityRes.rows[0];
+      if (!opportunity) {
+        throw new Error(
+          `Opportunity '${input.opportunityId}' not found for Lead '${input.leadId}'`,
+        );
+      }
+
+      assertPermission(context, "read", "opportunity", {
+        assigned_user_id: opportunity.assigned_user_id,
+      });
+    }
 
     // 2. Uniform Concurrency Lock: Lock the unit row FIRST (Unit -> Reservation lock order)
     const unitRes = await client.query<{
@@ -184,6 +208,7 @@ export async function createReservation(
         organization_id,
         lead_id,
         unit_id,
+        opportunity_id,
         reserved_by_user_id,
         deposit_amount,
         currency,
@@ -191,7 +216,7 @@ export async function createReservation(
         expires_at,
         payment_method,
         notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'CONFIRMED', $7, $8, $9)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CONFIRMED', $8, $9, $10)
       RETURNING *
     `;
 
@@ -201,6 +226,7 @@ export async function createReservation(
         context.organizationId,
         input.leadId,
         input.unitId,
+        input.opportunityId ?? null,
         context.userId,
         input.depositAmount,
         currency,
@@ -516,8 +542,12 @@ export async function listReservations(
       params.push(filters.leadId);
     }
     if (filters.unitId) {
-      whereClauses.push(`r.unit_id = $${idx++}`);
+      whereClauses.push(`r.unit_id = ${idx++}`);
       params.push(filters.unitId);
+    }
+    if (filters.opportunityId) {
+      whereClauses.push(`r.opportunity_id = ${idx++}`);
+      params.push(filters.opportunityId);
     }
     if (filters.status) {
       whereClauses.push(`r.status = $${idx++}`);
