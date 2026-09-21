@@ -30,6 +30,8 @@ export interface Opportunity {
   custom_data: Record<string, unknown>;
   created_at: string | Date;
   updated_at: string | Date;
+  lead_name?: string;
+  assignee_name?: string | null;
 }
 
 export interface CreateOpportunityInput {
@@ -298,11 +300,15 @@ export async function listOpportunities(
     }
 
     const res = await tx.query<Opportunity>(
-      `SELECT d.*
+      `SELECT
+         d.*,
+         l.full_name AS lead_name,
+         u.full_name AS assignee_name
        FROM deals d
        JOIN leads l
          ON l.organization_id = d.organization_id
         AND l.id = d.lead_id
+       LEFT JOIN users u ON u.id = d.assigned_user_id
        WHERE ${conditions.join(" AND ")}
        ORDER BY d.created_at DESC`,
       params,
