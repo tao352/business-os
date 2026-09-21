@@ -1551,6 +1551,5 @@ describe("Phase 7 & Phase 22: Real Estate Vertical Template & Domain Refinement"
       expect(["CANCELLED", "EXPIRED"]).toContain(finalReservations[0]!.status);
       expect((await getUnit(orgAContext, unit.id))?.status).toBe("AVAILABLE");
     });
-
   });
 });
