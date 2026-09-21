@@ -393,11 +393,11 @@ export async function listContracts(
       params.push(filters.leadId);
     }
     if (filters.unitId) {
-      whereClauses.push(`unit_id = ${idx++}`);
+      whereClauses.push(`unit_id = $${idx++}`);
       params.push(filters.unitId);
     }
     if (filters.opportunityId) {
-      whereClauses.push(`opportunity_id = ${idx++}`);
+      whereClauses.push(`opportunity_id = $${idx++}`);
       params.push(filters.opportunityId);
     }
     if (filters.status) {
