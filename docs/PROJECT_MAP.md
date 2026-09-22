@@ -49,6 +49,7 @@ Contract
 A Lead answers: **Who are we working with?**
 
 Examples of Lead-owned concerns:
+
 - name, phone, email
 - source and campaign relationship
 - assignee
@@ -187,6 +188,7 @@ Migrations live in:
 `packages/database/migrations`
 
 Rules:
+
 - migrations are append-only;
 - never edit an already-run migration;
 - use a new numbered migration;
@@ -208,6 +210,7 @@ Next.js lives in:
 `apps/web`
 
 Feature components currently include:
+
 - `features/leads`
 - `features/real-estate`
 - `features/dashboard`
