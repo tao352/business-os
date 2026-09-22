@@ -94,16 +94,14 @@ No historical Reservation or Contract may be linked to an Opportunity by guessin
 
 ## 3. Domain ownership
 
-| Domain | Owns | Primary code today | Notes |
-| --- | --- | --- | --- |
-| CRM | Leads, Lead lifecycle, Tasks, Activities, customer/contact history | `packages/core/src/crm` | Lead creation and stage transitions must use the shared lifecycle primitives. |
-| Sales | Opportunities, forecast pipeline behavior | `packages/core/src/sales` | `opportunity-service.ts` is authoritative. Legacy Deal APIs delegate here. |
-| Real Estate | Projects, Units, taxonomy, visits, payment plans, execution services | `packages/core/src/real-estate` | Reservations and Contracts point toward Sales Opportunities; Sales must not depend on Real Estate. |
-| Permissions | RBAC, row-level application authorization, tenant member guards | `packages/core/src/permissions` | UI permissions are convenience only; security boundaries belong in Core + DB. |
-| Automation | Smart Rules, rule execution, time scanners, outbox | `packages/core/src/rules` | Must call invariant-preserving domain services instead of mutating business entities directly. |
-| Integrations | Meta, WhatsApp, credentials, external ingestion | `packages/core/src/integrations`, `packages/core/src/whatsapp` | External Lead creation must enter through canonical Lead creation. |
-| Analytics | Dashboards and attribution | `packages/core/src/analytics` | Forecast and realized revenue sources are different; see Section 5. |
-| AI | Knowledge, retrieval, Ask Your Business, AI builder | `packages/core/src/ai` | AI proposes/executes inside permission and tenant boundaries; human approval remains the product rule. |
+- **CRM** — owns Leads, Lead lifecycle, Tasks, Activities, and customer/contact history. Primary code: `packages/core/src/crm`. Lead creation and stage transitions must use the shared lifecycle primitives.
+- **Sales** — owns Opportunities and forecast-pipeline behavior. Primary code: `packages/core/src/sales`. `opportunity-service.ts` is authoritative; legacy Deal APIs delegate here.
+- **Real Estate** — owns Projects, Units, taxonomy, visits, payment plans, Reservations, and Contracts. Primary code: `packages/core/src/real-estate`. Real Estate may point to Sales Opportunities; Sales must not depend on Real Estate.
+- **Permissions** — owns RBAC, row-level application authorization, and tenant-member guards. Primary code: `packages/core/src/permissions`. UI permission checks are convenience only; security boundaries belong in Core + Database.
+- **Automation** — owns Smart Rules, rule execution, time scanners, and outbox logic. Primary code: `packages/core/src/rules`. Automations must call invariant-preserving domain services instead of mutating business entities directly.
+- **Integrations** — owns Meta, WhatsApp, credentials, and external ingestion. Primary code: `packages/core/src/integrations` and `packages/core/src/whatsapp`. External Lead creation must enter through canonical Lead creation.
+- **Analytics** — owns dashboards and attribution. Primary code: `packages/core/src/analytics`. Forecast and realized revenue sources are different; see Section 5.
+- **AI** — owns knowledge, retrieval, Ask Your Business, and AI builder capabilities. Primary code: `packages/core/src/ai`. AI operates inside permission and tenant boundaries; human approval remains the product rule.
 
 ### Transitional ownership debt
 
@@ -120,20 +118,18 @@ Do not silently “fix” these while implementing an unrelated feature. Refacto
 
 ## 4. Source of Truth table
 
-| Data / decision | Source of Truth | Do not use as substitute |
-| --- | --- | --- |
-| Tenant membership and role | `organization_memberships` + verified tenant context | client-provided role or organization ID |
-| Customer relationship | `leads` | Opportunity or Contract |
-| Lead lifecycle/history | shared Lead lifecycle service + `lead_stage_history` | direct `UPDATE leads.status` |
-| Forecast deal | Opportunity / physical `deals` row | Lead status |
-| Forecast stage | `deals.stage` via Sales Opportunity service | Reservation status |
-| Forecast value | Opportunity `value` | Contract revenue |
-| Inventory state | `units.status` with Reservation/Contract invariants | UI-local state |
-| Temporary hold | `reservations` | Opportunity stage |
-| Actual executed sale / revenue | executed `contracts` | Opportunity value |
-| Marketing realized-revenue attribution | Contract-backed attribution | Lead count or Opportunity value |
-| Permissions | Core permission engine + PostgreSQL RLS | hidden buttons |
-| Tenant isolation | PostgreSQL FORCE RLS + composite FKs | application filtering alone |
+- **Tenant membership and role:** `organization_memberships` plus verified tenant context. Never trust a client-provided role or organization ID.
+- **Customer relationship:** `leads`. Opportunity or Contract is not a substitute for the person/customer record.
+- **Lead lifecycle/history:** the shared Lead lifecycle service plus `lead_stage_history`. Do not directly `UPDATE leads.status`.
+- **Forecast deal:** Opportunity, physically stored in `deals`. Do not use Lead status as the forecast deal.
+- **Forecast stage:** `deals.stage` through the Sales Opportunity service. Reservation status is not a substitute.
+- **Forecast value:** Opportunity `value`. Contract revenue is a different truth.
+- **Inventory state:** `units.status` plus Reservation/Contract invariants. Do not rely on UI-local state.
+- **Temporary hold:** `reservations`. Opportunity stage is not a hold record.
+- **Actual executed sale / revenue:** executed `contracts`. Opportunity value is forecast, not realized revenue.
+- **Marketing realized-revenue attribution:** Contract-backed attribution. Lead counts and Opportunity value are not realized revenue.
+- **Permissions:** Core permission engine plus PostgreSQL RLS. Hidden buttons are not authorization.
+- **Tenant isolation:** PostgreSQL FORCE RLS plus composite foreign keys. Application filtering alone is insufficient.
 
 ## 5. Analytics truth and current transition
 
