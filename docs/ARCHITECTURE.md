@@ -1,14 +1,19 @@
 # SYSTEM ARCHITECTURE CONSTITUTION
 
+> Use [PROJECT_MAP.md](./PROJECT_MAP.md) as the fast current-state map. This document describes the broader architecture direction.
+
 ## 1. Overview & High-Level Topology
 
-The Business Operating System is structured as a modular TypeScript monorepo deployed via containerized services:
+The Business Operating System is a TypeScript monorepo whose current architecture target is a **Modular Monolith**: strong internal domain boundaries inside one product, with separate processes/services introduced only when operationally justified.
 
 1. **Client / Web Application (`apps/web`):** [IMPLEMENTED — APPLICATION FOUNDATION]
    - Next.js 15 App Router, React 19, TypeScript, and Tailwind CSS.
    - High-density, accessible, anti-slop business interfaces adhering to the Taste-Skill standard.
    - Direct integration with `@business-os/core` domain services via Server Actions and REST API routes with secure HttpOnly sessions.
 2. **Core Domain & Security Layer (`packages/core`):** [IMPLEMENTED]
+   - CRM owns Leads, Lead lifecycle, Tasks, Activities, and customer/contact history.
+   - Sales owns Opportunities and forecast-pipeline behavior; the physical compatibility table remains `deals`.
+   - Real Estate owns Projects, Units, Visits, Payment Plans, Reservations, and Contracts. Real Estate may reference Sales Opportunities; Sales must not depend on Real Estate.
    - Tenant context resolution (`withTenantContext`), strict RBAC guards, and fail-closed secrets.
    - Metadata engine (`custom_field_definitions` + JSONB `custom_data`), Zod dynamic compilation.
    - Smart Rules (Trigger-Condition-Action) evaluation engine with loop prevention.
@@ -52,5 +57,5 @@ The Business Operating System is structured as a modular TypeScript monorepo dep
 ## 3. Communication Patterns
 
 - **Synchronous Web Requests:** Handled over HTTP/2 with JSON payloads. Every request must carry an `x-correlation-id` header for end-to-end tracing.
-- **Asynchronous Side-Effects:** Enqueued transactionally via `outbox_events` and processed by BullMQ background workers.
-- **Real-Time Client Updates:** Handled via Server-Sent Events (SSE) and lightweight Redis Pub/Sub for real-time lead alerts.
+- **Asynchronous Side-Effects:** The transactional outbox and processing primitives are implemented in Core. A dedicated standalone worker process is still planned; do not assume `apps/worker` exists today.
+- **Real-Time Client Updates:** SSE / Redis Pub/Sub are architectural options for later real-time delivery, not a required current dependency.

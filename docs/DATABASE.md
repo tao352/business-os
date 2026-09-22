@@ -1,11 +1,15 @@
 # DATABASE ARCHITECTURE & RELATIONAL SCHEMA
 
+> For the short current domain map and Sources of Truth, read [PROJECT_MAP.md](./PROJECT_MAP.md) first.
+
 ## 1. Core Principles
 
 - **Single Database, Shared Schema:** All tenants share the same PostgreSQL database instance and schema.
-- **Row-Level Security (RLS):** Every single tenant-aware table enforces RLS policies. The database itself guarantees data isolation.
-- **No Dynamic DDL for Custom Fields:** Tenant custom fields are stored as typed metadata in `custom_field_definitions` and value payloads in `custom_data` JSONB columns on core tables.
-- **Zero-Downtime Migrations:** All schema changes must follow the **Expand-Migrate-Contract** pattern.
+- **Row-Level Security (RLS):** Tenant-aware tables enforce PostgreSQL RLS; critical tenant tables use `FORCE ROW LEVEL SECURITY`.
+- **Relational Tenant Safety:** Composite foreign keys include `organization_id` so cross-tenant references are rejected by PostgreSQL.
+- **No Dynamic DDL for Custom Fields:** Tenant custom fields use metadata plus JSONB values instead of customer-driven `ALTER TABLE`.
+- **Append-Only Migrations:** Never edit an already-applied migration. Add a new numbered migration.
+- **No Fabricated Backfills:** When old data cannot be mapped deterministically, keep it unknown / `NULL`.
 
 ---
 
@@ -13,65 +17,113 @@
 
 ### Organizations & Tenancy
 
-- `organizations`: The root tenant boundary (`id`, `name`, `slug`, `plan`, `settings`, `created_at`).
-- `users`: User identity accounts (`id`, `email`, `full_name`, `password_hash`, `created_at`).
-- `organization_memberships`: Relationship linking users to organizations with a designated role (`id`, `organization_id`, `user_id`, `role`, `is_active`).
+- `organizations`: root tenant boundary.
+- `users`: user identity accounts.
+- `organization_memberships`: user ↔ organization relationship and tenant role.
 
-### Real Estate Vertical Entities
+### CRM
 
-- `projects`: Master developments / buildings (`id`, `organization_id`, `name`, `location`, `description`, `custom_data`).
-- `units`: Individual properties/apartments (`id`, `organization_id`, `project_id`, `unit_number`, `unit_type`, `gross_area`, `price`, `status`, `payment_plan_template`, `custom_data`).
-- `leads`: Prospective buyers (`id`, `organization_id`, `full_name`, `phone`, `email`, `status`, `assigned_user_id`, `campaign_id`, `custom_data`, `created_at`).
-- `activities`: Logged actions (calls, WhatsApp messages, emails) (`id`, `organization_id`, `lead_id`, `user_id`, `activity_type`, `notes`, `created_at`).
-- `tasks`: Reminders and follow-up deadlines (`id`, `organization_id`, `lead_id`, `assigned_user_id`, `title`, `due_date`, `status`).
-- `visits`: Scheduled or completed site visits (`id`, `organization_id`, `lead_id`, `project_id`, `scheduled_at`, `status`).
-- `reservations`: Formal holds on units (`id`, `organization_id`, `lead_id`, `unit_id`, `deposit_amount`, `status`, `expires_at`).
-- `contracts`: Executed purchase agreements (`id`, `organization_id`, `reservation_id`, `contract_value`, `signed_at`, `status`).
+- `leads`: the person/customer relationship.
+- `lead_stage_history`: canonical history of Lead lifecycle transitions.
+- `activities`: calls, messages, notes, status-change timeline entries.
+- `tasks`: follow-up work assigned around a Lead.
 
-### Customization & Metadata Entities
+### Sales
 
-- `custom_field_definitions`: Metadata describing custom fields (`id`, `organization_id`, `entity_type`, `field_key`, `display_name`, `field_type`, `validation_rules`, `is_required`, `display_order`).
-- `custom_entities`: Partitioned table for custom tenant modules (`id`, `organization_id`, `module_key`, `data`, `created_at`).
+- `deals`: physical compatibility table for the **Opportunity** domain.
+  - Application code should use Opportunity terminology and `packages/core/src/sales/opportunity-service.ts`.
+  - Canonical stages: `DISCOVERY`, `PROPOSAL`, `NEGOTIATION`, `WON`, `LOST`.
+  - Opportunity is the forecast-deal source of truth.
+  - One Lead may have many Opportunities.
+
+### Real Estate
+
+- `projects`: developments / buildings.
+- `units`: inventory within Projects.
+- `lead_property_interests`: what a Lead is looking for; Real Estate-specific requirements.
+- `visits`: scheduled/completed site visits.
+- `reservations`: temporary unit holds. May contain nullable `opportunity_id`.
+- `contracts`: commercial execution records. May contain nullable `reservation_id` and `opportunity_id`.
+
+R1.3B intentionally leaves historical `reservations.opportunity_id` and `contracts.opportunity_id` as `NULL` unless the correct Opportunity is known deterministically.
+
+### Customization & Metadata
+
+- `custom_field_definitions`: tenant-owned field metadata and validation definitions.
+- `custom_entities`: tenant custom-module records.
 
 ### Automation & Observability
 
-- `smart_rules`: Automation definitions (`id`, `organization_id`, `name`, `trigger_type`, `conditions`, `actions`, `safety_level`, `is_active`, `version`).
-- `audit_logs`: Tamper-evident event log (`id`, `organization_id`, `actor_id`, `actor_type`, `action`, `entity_type`, `entity_id`, `before_state`, `after_state`, `ip_address`, `created_at`).
-- `outbox_events`: Transactional outbox queue for reliable asynchronous event delivery (`id`, `organization_id`, `event_type`, `payload`, `status`, `attempts`, `idempotency_key`, `created_at`).
-- `schema_migrations`: Migration audit and SHA-256 verification log (`name`, `applied_at`, `checksum`).
+- `automation_rules` / Smart Rules tables: Trigger-Condition-Action automation definitions and execution state.
+- `audit_logs`: security/business audit history.
+- `outbox_events`: transactional outbox for reliable asynchronous work.
+- `schema_migrations`: applied migration name/checksum history.
 
 ---
 
 ## 3. Relational Isolation & Composite Foreign Keys
 
-In addition to Row-Level Security (RLS), the database enforces relational tenant isolation at the engine schema level using **Composite Foreign Keys**:
+RLS stops one tenant from reading or writing another tenant's rows. Composite foreign keys add a second boundary: a row also cannot **reference** a parent row from another tenant.
 
-- Every core table has a composite unique constraint: `UNIQUE (organization_id, id)`.
-- All relational foreign keys enforce composite references: `FOREIGN KEY (organization_id, parent_id) REFERENCES parent_table(organization_id, id) ON DELETE CASCADE`.
-- This guarantees that an entity belonging to Organization A cannot reference an entity belonging to Organization B, even if an application defect attempts to do so.
-- Enforced across:
-  - `units (organization_id, project_id) -> projects (organization_id, id)`
-  - `visits (organization_id, lead_id) -> leads (organization_id, id)`
-  - `visits (organization_id, project_id) -> projects (organization_id, id)`
-  - `reservations (organization_id, lead_id) -> leads (organization_id, id)`
-  - `reservations (organization_id, unit_id) -> units (organization_id, id)`
-  - `contracts (organization_id, reservation_id) -> reservations (organization_id, id)`
-  - `deals (organization_id, lead_id) -> leads (organization_id, id)`
-  - `deals (organization_id, unit_id) -> units (organization_id, id)`
-  - `activities (organization_id, lead_id) -> leads (organization_id, id)`
-  - `tasks (organization_id, lead_id) -> leads (organization_id, id)`
+Representative enforced relationships include:
+
+- `units (organization_id, project_id) -> projects (organization_id, id)`
+- `visits (organization_id, lead_id) -> leads (organization_id, id)`
+- `visits (organization_id, project_id) -> projects (organization_id, id)`
+- `reservations (organization_id, lead_id) -> leads (organization_id, id)`
+- `reservations (organization_id, unit_id) -> units (organization_id, id)`
+- `contracts (organization_id, lead_id) -> leads (organization_id, id)`
+- `contracts (organization_id, unit_id) -> units (organization_id, id)`
+- `contracts (organization_id, reservation_id) -> reservations (organization_id, id)`
+- `deals (organization_id, lead_id) -> leads (organization_id, id)`
+- `activities (organization_id, lead_id) -> leads (organization_id, id)`
+- `tasks (organization_id, lead_id) -> leads (organization_id, id)`
+
+R1.3B adds stronger execution linkage constraints:
+
+- `reservations (organization_id, opportunity_id, lead_id) -> deals (organization_id, id, lead_id)`
+- `contracts (organization_id, opportunity_id, lead_id) -> deals (organization_id, id, lead_id)`
+- when a Contract contains both `reservation_id` and `opportunity_id`, PostgreSQL enforces that the Reservation has the same Opportunity linkage.
+
+There is **no** `deals.unit_id` relationship in the current schema.
 
 ---
 
-## 4. Database Indexes Strategy
+## 4. Opportunity Database Guards
 
-- Foreign keys and tenant keys are strictly indexed: `(organization_id, id)`.
-- Composite foreign key pairs are indexed for high-performance join traversal: `(organization_id, parent_id)`.
-- Frequently queried JSONB keys (e.g. `budget` or `finishing_type`) are indexed via expression indexes:
-  ```sql
-  CREATE INDEX idx_leads_custom_budget ON leads ((custom_data->>'budget')) WHERE custom_data->>'budget' IS NOT NULL;
-  ```
-- pgvector indexes use HNSW for fast approximate nearest neighbor search:
-  ```sql
-  CREATE INDEX idx_doc_chunks_embedding ON document_chunks USING hnsw (embedding vector_cosine_ops);
-  ```
+Migration `0023_r13b_opportunity_execution_linkage.sql` adds database-level guards so application bypasses cannot create:
+
+- non-canonical Opportunity stages;
+- negative Opportunity values;
+- cross-tenant Opportunity execution links;
+- Opportunity links for the wrong Lead;
+- Contract ↔ Reservation Opportunity mismatches.
+
+These constraints complement, not replace, Core permission checks and RLS.
+
+---
+
+## 5. Database Index Strategy
+
+- Tenant and parent lookup pairs are indexed around `organization_id`.
+- Foreign-key traversal columns use tenant-prefixed indexes where appropriate.
+- R1.3B adds partial Opportunity indexes:
+  - `reservations (organization_id, opportunity_id) WHERE opportunity_id IS NOT NULL`
+  - `contracts (organization_id, opportunity_id) WHERE opportunity_id IS NOT NULL`
+- Frequently queried JSONB keys may use expression indexes.
+- pgvector data uses vector-specific indexes where configured for semantic retrieval.
+
+---
+
+## 6. Migration Rules
+
+Schema changes use the safest applicable form of **Expand → Migrate → Switch → Contract**.
+
+Permanent rules:
+
+1. never rewrite an already-applied migration;
+2. prefer additive nullable fields before stricter requirements;
+3. preflight legacy data before adding a constraint that could reinterpret it;
+4. do not guess old data;
+5. preserve backward compatibility until callers have migrated;
+6. run migrations under the administrative migrator role, never by weakening runtime `app_user` security.
