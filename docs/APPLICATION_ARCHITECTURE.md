@@ -1,5 +1,7 @@
 # Business OS — Application Web Architecture
 
+> Start with [PROJECT_MAP.md](./PROJECT_MAP.md) for the short current domain map, Sources of Truth, and known transitional debt.
+
 ## 1. High-Level Topology
 
 ```text
@@ -25,10 +27,10 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                 Core Domain (@business-os/core)              │
 │                                                             │
-│  - CRM Services (Leads, Activities, Tasks, Custom Data)     │
-│  - Permissions & RBAC Matrix                                │
-│  - Real Estate Services (Projects, Units)                   │
-│  - Audit Logging & Activity Streams                         │
+│  - CRM Services (Leads, Activities, Tasks, Lifecycle)       │
+│  - Sales Services (Opportunities / forecast pipeline)       │
+│  - Real Estate (Projects, Units, Reservations, Contracts)   │
+│  - Permissions, Audit Logging & Activity Streams            │
 └──────────────────────────────┬──────────────────────────────┘
                                │ withTenantContext()
                                ▼
@@ -69,21 +71,30 @@
 ### 2.3 Core Domain Layer (`@business-os/core`)
 
 - Direct programmatic invocation from Server Components and Server Actions.
-- **Zero Raw SQL in Presentation Layer:** Next.js never executes direct SQL queries or accesses database clients in `apps/web/app/**`. All presentation queries are routed strictly through typed read-model services (`packages/core/src/views/read-models.ts`):
-  - `getDashboardOverview(context)`: Aggregated pipeline metrics, recent leads, and salesperson-isolated activity stream.
-  - `listLeadsPage(context, filters)`: Paginated lead listing with search, status filtering, and server-side PII masking.
-  - `getLeadWorkspace(context, leadId)`: Full lead dossier including assignee details, chronological activity timeline, pending tasks, and org members.
-  - `listProjectsOverview(context)`: Truthful inventory overview without fabricated statuses.
-  - `listUnitsInventory(context, filters)`: Paginated units inventory with truthful total count.
-  - `getIntegrationStatus(context)`: Channel status querying `meta_integrations` and `whatsapp_integrations` without secret leakage.
-  - `listAutomationRules(context)`: Event-driven rules querying `automation_rules` with truthful `trigger_type`.
-  - `getOrganizationSettings(context)`: Active workspace settings and authorized team roster.
+- **Dependency Direction:** The normal application path is Next.js → typed Core service/read model → Database. Business rules and authorization must not be implemented as presentation-layer SQL.
+- **Known transitional exception:** `apps/web/lib/auth.ts` still imports `@business-os/database` for a narrow user lookup inside session-user resolution. Removing remaining web → database access is an explicit architecture-refactor item; do not copy this exception into new features.
+- **Read Models:** Many presentation queries currently route through `packages/core/src/views/read-models.ts`, including:
+  - `getDashboardOverview(context)`
+  - `listLeadsPage(context, filters)`
+  - `getLeadWorkspace(context, leadId)`
+  - `listProjectsOverview(context)`
+  - `listUnitsInventory(context, filters)`
+  - `getIntegrationStatus(context)`
+  - `listAutomationRules(context)`
+  - `getOrganizationSettings(context)`
+- `read-models.ts` is currently a multi-domain compatibility hub and is scheduled for later behavior-preserving splitting. New domain behavior should stay in the owning Core module rather than expanding this file by default.
 - **Strict MARKETING_USER Aggregate-Only Policy:** The `MARKETING_USER` role is strictly confined to aggregated/reporting analytics and barred from individual customer records at the core layer via `assertCanAccessIndividualLeadRecords(context)`. Core services (`getLead`, `listLeads`, `listLeadActivities`, `listTasks`, `createTask`, `completeTask`, `logActivity`) fail closed with typed `ForbiddenError` when called by `MARKETING_USER`.
 - **Row-Level Mutation Authorization & Atomic Rollback:**
   - `logActivity(context, input)`: Asserts individual lead access, loads the target lead inside the database transaction, and calls `assertPermission(context, "update", "lead", targetLead)` _before_ updating `leads.last_contacted_at` or inserting the activity. If an unauthorized agent calls `logActivity`, the transaction immediately aborts without updating timestamps.
   - `createTask(context, input)`: Loads the target lead within the transaction and asserts row-level update permission; enforces that `SALESPERSON` can only assign to themselves; and verifies that the assignee is an active member of the tenant organization.
   - `completeTask(context, taskId)`: Asserts static lead update permission (immediately blocking `READ_ONLY` and `MARKETING_USER`), verifies row-level authorization against the associated lead, and strictly forbids `SALESPERSON` from completing tasks assigned to other agents.
 - **Salesperson Scoping Isolation:** When accessed by users with `SALESPERSON` role, leads and activity streams are strictly scoped to leads assigned to `context.userId`.
+- **Sales Opportunity Boundary:**
+  - Lead is the person/customer relationship.
+  - Opportunity is the commercial deal and forecast-pipeline entity.
+  - New Opportunity behavior belongs in `packages/core/src/sales/opportunity-service.ts`; the physical table remains `deals` during compatibility migration.
+  - One Lead may own many Opportunities.
+  - Reservations and Contracts may point to an Opportunity, but Sales must remain generic and must not depend on Real Estate-specific concepts.
 - **Permissions & Authoritative Capability Model:**
   - `getUiCapabilities(context)` resolves typed, matrix-backed capability flags (`canCreateLead`, `canReadProjects`, `canReadUnits`, `canReadAutomations`, `canReadIntegrations`, `canReadSettings`, `canExportLeads`, `canUpdateAllLeads`).
   - Presentation components use these capabilities rather than guessing permissions from roles:
