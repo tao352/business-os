@@ -26,6 +26,8 @@ For every significant task, **BEFORE** implementing code, produce a concise **Ch
 
 ## 2. The 7-Step Development Protocol
 
+Before changing code, read `docs/PROJECT_MAP.md` for the current domain map, Sources of Truth, known transitional debt, and the next architecture checkpoint. If it conflicts with executable code or a newer migration, verify the code and update the map in the same PR.
+
 Every session and feature implementation must strictly adhere to this sequence:
 
 ```
