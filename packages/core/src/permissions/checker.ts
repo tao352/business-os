@@ -57,6 +57,20 @@ export function can(
       }
     }
 
+    if (resource === "opportunity") {
+      if (
+        action === "read_all" ||
+        action === "update_all" ||
+        action === "export" ||
+        action === "delete"
+      ) {
+        return false;
+      }
+      if (targetEntity && targetEntity.assigned_user_id !== userId) {
+        return false;
+      }
+    }
+
     // Reservation row visibility is derived from the associated Lead assignment.
     // Reservation services enforce that relationship explicitly after loading the Lead.
   }

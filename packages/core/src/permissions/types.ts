@@ -9,6 +9,7 @@ export type Resource =
   | "project"
   | "campaign"
   | "contract"
+  | "opportunity"
   | "reservation"
   | "smart_rule"
   | "custom_field"

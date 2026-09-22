@@ -44,10 +44,13 @@ describe("RBAC Permission Engine", () => {
     const managerCtx = makeContext("SALES_MANAGER");
     const agentCtx = makeContext("SALESPERSON");
 
-    it("SALES_MANAGER can read and update all leads", () => {
+    it("SALES_MANAGER can read and update all leads and opportunities", () => {
       expect(can(managerCtx, "read_all", "lead")).toBe(true);
       expect(can(managerCtx, "update_all", "lead")).toBe(true);
       expect(can(managerCtx, "export", "lead")).toBe(true);
+      expect(can(managerCtx, "create", "opportunity")).toBe(true);
+      expect(can(managerCtx, "read_all", "opportunity")).toBe(true);
+      expect(can(managerCtx, "update_all", "opportunity")).toBe(true);
     });
 
     it("SALESPERSON cannot access bulk lead actions", () => {
@@ -80,6 +83,28 @@ describe("RBAC Permission Engine", () => {
         assertPermission(agentCtx, "update", "lead", unassignedLead),
       ).toThrow(ForbiddenError);
     });
+
+    it("SALESPERSON can only access opportunities assigned to them", () => {
+      const ownOpportunity = {
+        id: "opp-1",
+        assigned_user_id: mockUserId,
+      };
+      const foreignOpportunity = {
+        id: "opp-2",
+        assigned_user_id: "other-agent-999",
+      };
+
+      expect(can(agentCtx, "create", "opportunity", ownOpportunity)).toBe(true);
+      expect(can(agentCtx, "read", "opportunity", ownOpportunity)).toBe(true);
+      expect(can(agentCtx, "update", "opportunity", ownOpportunity)).toBe(true);
+      expect(can(agentCtx, "read", "opportunity", foreignOpportunity)).toBe(
+        false,
+      );
+      expect(can(agentCtx, "update", "opportunity", foreignOpportunity)).toBe(
+        false,
+      );
+      expect(can(agentCtx, "read_all", "opportunity")).toBe(false);
+    });
   });
 
   describe("MARKETING & FINANCE Roles", () => {
@@ -97,10 +122,11 @@ describe("RBAC Permission Engine", () => {
       expect(can(mktUserCtx, "export", "lead")).toBe(false);
     });
 
-    it("FINANCE can manage contracts and export financial reports", () => {
+    it("FINANCE can manage contracts without owning sales opportunities", () => {
       const financeCtx = makeContext("FINANCE");
       expect(can(financeCtx, "manage", "contract")).toBe(true);
       expect(can(financeCtx, "export", "contract")).toBe(true);
+      expect(can(financeCtx, "create", "opportunity")).toBe(false);
       expect(can(financeCtx, "manage", "smart_rule")).toBe(false);
     });
   });
