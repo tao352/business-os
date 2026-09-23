@@ -112,8 +112,10 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
   }) => {
     await page.context().clearCookies();
     await page.goto("/login");
-    await page.locator('input[type="email"]').fill(fixtures.userA.email);
-    await page.locator('input[type="password"]').fill(fixtures.userA.password);
+    await page.locator('input[type="email"]').fill(fixtures.userSwitch.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userSwitch.password);
     await page.getByRole("button", { name: /sign in/i }).click();
     await page.waitForURL(/\/app(\?.*)?$/);
 
