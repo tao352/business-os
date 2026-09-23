@@ -6,11 +6,7 @@ import { can, getOpportunityWorkspace } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { OpportunityActionsBar } from "@/features/opportunities/opportunity-actions-bar";
-import {
-  formatCurrency,
-  formatDate,
-  formatDateTime,
-} from "@/lib/formatters";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 
 interface OpportunityDetailPageProps {
   params: Promise<{ id: string }>;
@@ -133,7 +129,9 @@ export default async function OpportunityDetailPage({
                             <Badge status={event.from_stage}>
                               {event.from_stage}
                             </Badge>
-                            <span className="text-[11px] text-ink-faint">→</span>
+                            <span className="text-[11px] text-ink-faint">
+                              →
+                            </span>
                           </>
                         ) : null}
                         <Badge status={event.to_stage}>{event.to_stage}</Badge>
@@ -234,9 +232,7 @@ export default async function OpportunityDetailPage({
 
           {opportunity.stage === "LOST" && opportunity.lost_reason_code && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 text-xs">
-              <h3 className="font-semibold text-rose-800 mb-2">
-                Loss Context
-              </h3>
+              <h3 className="font-semibold text-rose-800 mb-2">Loss Context</h3>
               <div className="text-rose-800">
                 {opportunity.lost_reason_code.replace(/_/g, " ")}
               </div>

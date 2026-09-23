@@ -123,7 +123,6 @@ export function ReserveUnitDialog({
           </div>
         </div>
 
-
         {opportunities.length > 0 && (
           <div>
             <label className="block text-xs font-semibold text-ink mb-1">
@@ -135,7 +134,9 @@ export function ReserveUnitDialog({
               disabled={isLoading}
               className="text-xs"
             >
-              <option value="">No Opportunity (legacy / direct reservation)</option>
+              <option value="">
+                No Opportunity (legacy / direct reservation)
+              </option>
               {opportunities.map((opportunity) => (
                 <option key={opportunity.id} value={opportunity.id}>
                   {opportunity.title} — {opportunity.stage}

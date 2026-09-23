@@ -117,9 +117,7 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     await page.getByRole("button", { name: /sign in/i }).click();
     await page.waitForURL(/\/app(\?.*)?$/);
 
-    const opportunitiesNav = page.locator(
-      'aside a[href="/app/opportunities"]',
-    );
+    const opportunitiesNav = page.locator('aside a[href="/app/opportunities"]');
     await expect(opportunitiesNav).toBeVisible();
     await opportunitiesNav.click();
 
@@ -409,7 +407,9 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     await expect(page.locator("header nav")).toContainText(
       "Opportunity Details",
     );
-    await expect(page.locator("body")).toContainText(fixtures.opportunityA.title);
+    await expect(page.locator("body")).toContainText(
+      fixtures.opportunityA.title,
+    );
     await expect(
       page.getByRole("button", { name: /change stage/i }),
     ).not.toBeVisible();

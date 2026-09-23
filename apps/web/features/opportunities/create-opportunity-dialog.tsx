@@ -39,7 +39,8 @@ export function CreateOpportunityDialog({
       title: String(formData.get("title") || ""),
       value,
       currency: String(formData.get("currency") || "EGP"),
-      expectedCloseDate: String(formData.get("expectedCloseDate") || "") || null,
+      expectedCloseDate:
+        String(formData.get("expectedCloseDate") || "") || null,
       assignedUserId: assignedUserId || null,
     });
 
@@ -128,11 +129,7 @@ export function CreateOpportunityDialog({
             <label className="block text-xs font-semibold text-ink mb-1">
               Expected Close Date
             </label>
-            <Input
-              type="date"
-              name="expectedCloseDate"
-              disabled={isLoading}
-            />
+            <Input type="date" name="expectedCloseDate" disabled={isLoading} />
           </div>
 
           <div className="p-3 rounded-md border border-line bg-surface-subtle text-xs text-ink-secondary">

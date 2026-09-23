@@ -4,10 +4,7 @@ import {
   assertCanAccessIndividualLeadRecords,
   assertPermission,
 } from "../permissions/checker.js";
-import type {
-  Opportunity,
-  OpportunityStage,
-} from "./opportunity-service.js";
+import type { Opportunity, OpportunityStage } from "./opportunity-service.js";
 
 export interface OpportunityListItem extends Opportunity {
   lead_name: string;
@@ -205,10 +202,8 @@ export async function getOpportunityWorkspace(
       [context.organizationId, opportunityId],
     );
 
-    const {
-      lead_assigned_user_id: _leadAssignedUserId,
-      ...safeOpportunity
-    } = opportunity;
+    const { lead_assigned_user_id: _leadAssignedUserId, ...safeOpportunity } =
+      opportunity;
 
     return {
       opportunity: safeOpportunity,

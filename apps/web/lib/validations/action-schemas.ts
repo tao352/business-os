@@ -226,7 +226,6 @@ export const addLeadInterestSchema = z.object({
   notes: z.string().trim().max(1000).optional().or(z.literal("")).nullable(),
 });
 
-
 export const createOpportunitySchema = z.object({
   leadId: z.string().uuid("Invalid lead ID"),
   title: z
@@ -251,13 +250,7 @@ export const createOpportunitySchema = z.object({
 export const updateOpportunityStageSchema = z
   .object({
     opportunityId: z.string().uuid("Invalid Opportunity ID"),
-    newStage: z.enum([
-      "DISCOVERY",
-      "PROPOSAL",
-      "NEGOTIATION",
-      "WON",
-      "LOST",
-    ]),
+    newStage: z.enum(["DISCOVERY", "PROPOSAL", "NEGOTIATION", "WON", "LOST"]),
     lostReasonCode: z
       .enum([
         "PRICE",

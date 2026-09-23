@@ -68,7 +68,9 @@ export default async function OpportunitiesPage({
             Opportunities
           </h1>
           <p className="text-xs text-ink-muted mt-0.5">
-            {totalCount} {totalCount === 1 ? "commercial deal" : "commercial deals"} in the sales pipeline
+            {totalCount}{" "}
+            {totalCount === 1 ? "commercial deal" : "commercial deals"} in the
+            sales pipeline
           </p>
         </div>
 

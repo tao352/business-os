@@ -79,9 +79,7 @@ export function OpportunityTable({
                   </div>
                 </td>
                 <td className="py-2.5 px-4">
-                  <Badge status={opportunity.stage}>
-                    {opportunity.stage}
-                  </Badge>
+                  <Badge status={opportunity.stage}>{opportunity.stage}</Badge>
                 </td>
                 <td className="py-2.5 px-4 font-semibold text-ink">
                   {formatCurrency(

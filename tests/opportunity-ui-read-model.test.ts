@@ -80,11 +80,7 @@ describe("Opportunity UI read models", () => {
       value: 1_500_000,
       currency: "EGP",
     });
-    await updateOpportunityStage(
-      contextA,
-      opportunityA2.id,
-      "NEGOTIATION",
-    );
+    await updateOpportunityStage(contextA, opportunityA2.id, "NEGOTIATION");
 
     const opportunityB = await createOpportunity(contextB, {
       leadId: leadB.id,
