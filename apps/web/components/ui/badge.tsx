@@ -4,7 +4,15 @@ import { twMerge } from "tailwind-merge";
 import type { LeadStatus } from "@business-os/types";
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  status?:\n    | LeadStatus\n    | "DISCOVERY"\n    | "PROPOSAL"\n    | "NEGOTIATION"\n    | "WON"\n    | "DEFAULT"\n    | "ACTIVE"\n    | "INACTIVE";
+  status?:
+    | LeadStatus
+    | "DISCOVERY"
+    | "PROPOSAL"
+    | "NEGOTIATION"
+    | "WON"
+    | "DEFAULT"
+    | "ACTIVE"
+    | "INACTIVE";
   variant?:
     | "neutral"
     | "info"
