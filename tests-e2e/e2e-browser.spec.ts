@@ -326,6 +326,16 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       page.locator('aside a[href="/app/opportunities"]'),
     ).not.toBeVisible();
 
+    // FINANCE may open customer records but must not see the Sales Opportunity surface.
+    await page.goto(`/app/leads/${fixtures.leadA.id}`);
+    await page.waitForURL(new RegExp(`/app/leads/${fixtures.leadA.id}`));
+    await expect(page.locator("body")).not.toContainText("Sales Opportunities");
+    await expect(
+      page.getByRole("button", { name: /new opportunity/i }),
+    ).not.toBeVisible();
+
+    await page.goto("/app");
+
     // Privileged system items MUST NOT be visible
     await expect(
       page.locator('aside a[href="/app/automations"]'),
