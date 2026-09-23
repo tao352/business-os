@@ -116,7 +116,7 @@ export async function calculateCampaignAttribution(
        FROM leads l
        LEFT JOIN visits v ON l.id = v.lead_id AND v.status = 'COMPLETED'
        LEFT JOIN reservations r ON l.id = r.lead_id AND r.status IN ('CONFIRMED', 'CONVERTED')
-       LEFT JOIN contracts c ON l.id = c.lead_id AND c.status = 'SIGNED'
+       LEFT JOIN contracts c ON l.id = c.lead_id AND c.status IN ('SIGNED', 'ACTIVE', 'COMPLETED')
        WHERE l.organization_id = $1 AND l.campaign_id IS NOT NULL
        GROUP BY l.campaign_id, l.source`,
       [context.organizationId],
