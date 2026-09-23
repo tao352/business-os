@@ -346,7 +346,7 @@ describe("R1.3C Opportunity lifecycle", () => {
     );
 
     const finance = await inviteMember(context, {
-      email: `r13c.finance.${suffix}@example.test`,
+      email: `r13c.finance-user.${suffix}@example.test`,
       fullName: "R1.3C Finance User",
       role: "FINANCE",
     });
