@@ -7,6 +7,7 @@ import {
   getLeadMatchedUnits,
   listProjects,
   listLeadInterests,
+  listOpportunities,
   can,
 } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
@@ -15,6 +16,7 @@ import { LeadActionsBar } from "@/features/leads/lead-actions-bar";
 import { LeadTimeline } from "@/features/leads/lead-timeline";
 import { LeadSidePanel } from "@/features/leads/lead-side-panel";
 import { LeadInterestCard } from "@/features/real-estate/lead-interest-card";
+import { LeadOpportunitiesCard } from "@/features/opportunities/lead-opportunities-card";
 
 interface LeadDetailPageProps {
   params: Promise<{
@@ -37,11 +39,14 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   const canUpdateLead = can(context, "update", "lead", lead);
   const canReassignLead = can(context, "update_all", "lead");
   const canReserveUnit = can(context, "create", "reservation");
+  const canReadOpportunity = can(context, "read", "opportunity");
+  const canCreateOpportunity = can(context, "create", "opportunity");
 
   // Fetch matched available units, 1:N property interests, and project list for real estate domain
   let matchedUnits: Awaited<ReturnType<typeof getLeadMatchedUnits>> = [];
   let projects: Awaited<ReturnType<typeof listProjects>> = [];
   let interests: Awaited<ReturnType<typeof listLeadInterests>> = [];
+  let opportunities: Awaited<ReturnType<typeof listOpportunities>> = [];
 
   try {
     interests = await listLeadInterests(context, id);
@@ -59,6 +64,14 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
     projects = await listProjects(context);
   } catch {
     projects = [];
+  }
+
+  if (canReadOpportunity) {
+    try {
+      opportunities = await listOpportunities(context, { leadId: id });
+    } catch {
+      opportunities = [];
+    }
   }
 
   return (
@@ -106,6 +119,8 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
           members={members}
           canUpdateLead={canUpdateLead}
           canReassignLead={canReassignLead}
+          canCreateOpportunity={canCreateOpportunity}
+          leadName={lead.full_name}
         />
       </div>
 
@@ -113,6 +128,10 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: Real Estate Requirements & Matched Inventory + Timeline */}
         <div className="lg:col-span-8 space-y-6">
+          {canReadOpportunity && (
+            <LeadOpportunitiesCard opportunities={opportunities} />
+          )}
+
           {/* Real Estate Requirements & Algorithmically Matched Inventory */}
           <LeadInterestCard
             leadId={lead.id}
@@ -120,6 +139,18 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
             interests={interests}
             matchedUnits={matchedUnits}
             projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+            opportunities={opportunities
+              .filter(
+                (opportunity) =>
+                  opportunity.stage === "DISCOVERY" ||
+                  opportunity.stage === "PROPOSAL" ||
+                  opportunity.stage === "NEGOTIATION",
+              )
+              .map((opportunity) => ({
+                id: opportunity.id,
+                title: opportunity.title,
+                stage: opportunity.stage,
+              }))}
             canEdit={canUpdateLead}
             canReserve={canReserveUnit}
           />

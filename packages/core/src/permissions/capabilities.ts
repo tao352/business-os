@@ -5,6 +5,9 @@ export interface UiCapabilities {
   canCreateLead: boolean;
   canExportLeads: boolean;
   canUpdateAllLeads: boolean;
+  canReadOpportunities: boolean;
+  canCreateOpportunity: boolean;
+  canUpdateOpportunity: boolean;
   canReadProjects: boolean;
   canCreateProject: boolean;
   canUpdateProject: boolean;
@@ -42,6 +45,9 @@ export function getUiCapabilities(
     canCreateLead: can(ctx, "create", "lead"),
     canExportLeads: can(ctx, "export", "lead"),
     canUpdateAllLeads: can(ctx, "update_all", "lead"),
+    canReadOpportunities: can(ctx, "read", "opportunity"),
+    canCreateOpportunity: can(ctx, "create", "opportunity"),
+    canUpdateOpportunity: can(ctx, "update", "opportunity"),
     canReadProjects: can(ctx, "read", "project"),
     canCreateProject: can(ctx, "create", "project"),
     canUpdateProject: can(ctx, "update", "project"),
