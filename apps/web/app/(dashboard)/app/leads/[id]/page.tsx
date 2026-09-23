@@ -16,6 +16,7 @@ import { LeadActionsBar } from "@/features/leads/lead-actions-bar";
 import { LeadTimeline } from "@/features/leads/lead-timeline";
 import { LeadSidePanel } from "@/features/leads/lead-side-panel";
 import { LeadInterestCard } from "@/features/real-estate/lead-interest-card";
+import { LeadOpportunitiesCard } from "@/features/opportunities/lead-opportunities-card";
 
 interface LeadDetailPageProps {
   params: Promise<{
@@ -65,12 +66,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   }
 
   try {
-    opportunities = (await listOpportunities(context, { leadId: id })).filter(
-      (opportunity) =>
-        opportunity.stage === "DISCOVERY" ||
-        opportunity.stage === "PROPOSAL" ||
-        opportunity.stage === "NEGOTIATION",
-    );
+    opportunities = await listOpportunities(context, { leadId: id });
   } catch {
     opportunities = [];
   }
@@ -129,6 +125,8 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: Real Estate Requirements & Matched Inventory + Timeline */}
         <div className="lg:col-span-8 space-y-6">
+          <LeadOpportunitiesCard opportunities={opportunities} />
+
           {/* Real Estate Requirements & Algorithmically Matched Inventory */}
           <LeadInterestCard
             leadId={lead.id}
@@ -136,11 +134,18 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
             interests={interests}
             matchedUnits={matchedUnits}
             projects={projects.map((p) => ({ id: p.id, name: p.name }))}
-            opportunities={opportunities.map((opportunity) => ({
-              id: opportunity.id,
-              title: opportunity.title,
-              stage: opportunity.stage,
-            }))}
+            opportunities={opportunities
+              .filter(
+                (opportunity) =>
+                  opportunity.stage === "DISCOVERY" ||
+                  opportunity.stage === "PROPOSAL" ||
+                  opportunity.stage === "NEGOTIATION",
+              )
+              .map((opportunity) => ({
+                id: opportunity.id,
+                title: opportunity.title,
+                stage: opportunity.stage,
+              }))}
             canEdit={canUpdateLead}
             canReserve={canReserveUnit}
           />
