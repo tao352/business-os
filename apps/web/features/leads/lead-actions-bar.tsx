@@ -7,6 +7,7 @@ import { AddNoteDialog } from "./add-note-dialog";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { ChangeStatusDialog } from "./change-status-dialog";
 import { ReassignLeadDialog } from "./reassign-lead-dialog";
+import { CreateOpportunityDialog } from "@/features/opportunities/create-opportunity-dialog";
 import type { LeadStatus, TenantRole } from "@business-os/types";
 
 interface LeadActionsBarProps {
@@ -17,6 +18,8 @@ interface LeadActionsBarProps {
   members: Array<{ user_id: string; full_name: string; role: string }>;
   canUpdateLead?: boolean;
   canReassignLead?: boolean;
+  canCreateOpportunity?: boolean;
+  leadName: string;
 }
 
 export function LeadActionsBar({
@@ -27,6 +30,8 @@ export function LeadActionsBar({
   members,
   canUpdateLead = true,
   canReassignLead,
+  canCreateOpportunity = false,
+  leadName,
 }: LeadActionsBarProps) {
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [isTaskOpen, setIsTaskOpen] = useState(false);
@@ -40,7 +45,7 @@ export function LeadActionsBar({
         userRole === "ADMIN" ||
         userRole === "SALES_MANAGER";
 
-  if (!canUpdateLead && !canReassign) {
+  if (!canUpdateLead && !canReassign && !canCreateOpportunity) {
     return (
       <div className="flex items-center">
         <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-surface-muted text-ink-muted text-xs font-medium border border-line">
@@ -53,6 +58,15 @@ export function LeadActionsBar({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
+        {canCreateOpportunity && (
+          <CreateOpportunityDialog
+            leadId={leadId}
+            leadName={leadName}
+            assignedUserId={currentAssigneeId}
+            canCreate
+          />
+        )}
+
         {canUpdateLead && (
           <>
             <Button
