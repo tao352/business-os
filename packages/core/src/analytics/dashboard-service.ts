@@ -41,7 +41,7 @@ export async function getExecutiveDashboard(
       `SELECT 
         (SELECT COUNT(*) FROM visits WHERE organization_id = $1) AS total_visits,
         (SELECT COUNT(*) FROM reservations WHERE organization_id = $1 AND status IN ('CONFIRMED', 'CONVERTED')) AS total_reservations,
-        (SELECT COUNT(*) FROM contracts WHERE organization_id = $1 AND status = 'SIGNED') AS total_contracts,
+        (SELECT COUNT(*) FROM contracts WHERE organization_id = $1 AND status IN ('SIGNED', 'ACTIVE', 'COMPLETED')) AS total_contracts,
         COALESCE((SELECT SUM(deposit_amount) FROM reservations WHERE organization_id = $1 AND status IN ('CONFIRMED', 'CONVERTED')), 0) AS collected_deposits`,
       [context.organizationId],
     );
@@ -57,7 +57,7 @@ export async function getExecutiveDashboard(
     const dealsRes = await tx.query<{ pipeline_value: string }>(
       `SELECT COALESCE(SUM(value), 0) AS pipeline_value
        FROM deals
-       WHERE organization_id = $1 AND stage != 'LOST'`,
+       WHERE organization_id = $1 AND stage IN ('DISCOVERY', 'PROPOSAL', 'NEGOTIATION')`,
       [context.organizationId],
     );
     const pipelineValue = Number(dealsRes.rows[0]?.pipeline_value) || 0;
@@ -86,8 +86,8 @@ export async function getExecutiveDashboard(
         u.full_name,
         COUNT(DISTINCT l.id) AS assigned_leads,
         COUNT(DISTINCT v.id) FILTER (WHERE v.status = 'COMPLETED') AS completed_visits,
-        COUNT(DISTINCT c.id) FILTER (WHERE c.status = 'SIGNED') AS contracts_count,
-        COALESCE(SUM(c.contract_value) FILTER (WHERE c.status = 'SIGNED'), 0) AS total_revenue
+        COUNT(DISTINCT c.id) FILTER (WHERE c.status IN ('SIGNED', 'ACTIVE', 'COMPLETED')) AS contracts_count,
+        COALESCE(SUM(c.contract_value) FILTER (WHERE c.status IN ('SIGNED', 'ACTIVE', 'COMPLETED')), 0) AS total_revenue
        FROM users u
        JOIN organization_memberships om ON u.id = om.user_id AND om.organization_id = $1
        LEFT JOIN leads l ON u.id = l.assigned_user_id AND l.organization_id = $1

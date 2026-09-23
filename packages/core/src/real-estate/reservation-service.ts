@@ -11,6 +11,7 @@ import {
 } from "../permissions/checker.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
 import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
+import { transitionOpportunityStageInTransaction } from "../sales/opportunity-lifecycle.js";
 
 export class UnitNotAvailableError extends Error {
   constructor(
@@ -240,9 +241,29 @@ export async function createReservation(
         throw new Error("Failed to create reservation");
       }
 
-      // 6. Progress Lead status to RESERVED through the shared lifecycle engine.
-      // Reservation is an authoritative operational event, so preserve the prior
-      // behavior of allowing the system to progress the pipeline from any open stage.
+      // 6. A linked Reservation is authoritative evidence that the commercial
+      // deal reached late-stage negotiation. The Sales lifecycle primitive locks
+      // the Opportunity after the Real Estate inventory locks and rejects closed
+      // Opportunities atomically.
+      if (created.opportunity_id) {
+        await transitionOpportunityStageInTransaction(
+          client,
+          context,
+          created.opportunity_id,
+          "NEGOTIATION",
+          {
+            source: "reservation_created",
+            expectedLeadId: input.leadId,
+            metadata: {
+              reservationId: created.id,
+              unitId: input.unitId,
+            },
+          },
+        );
+      }
+
+      // 7. Progress Lead status to RESERVED through the shared lifecycle engine.
+      // Lead status remains a compatibility milestone; Opportunity is forecast truth.
       await transitionLeadStageInTransaction(
         client,
         context,
@@ -258,7 +279,7 @@ export async function createReservation(
         },
       );
 
-      // 7. Append Activity to Lead Timeline
+      // 8. Append Activity to Lead Timeline
       await client.query(
         `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
          VALUES ($1, $2, $3, 'NOTE', $4, $5)`,
@@ -269,13 +290,14 @@ export async function createReservation(
           `Unit #${unit.unit_number} reserved with deposit of ${input.depositAmount} ${currency}`,
           JSON.stringify({
             reservationId: created.id,
+            opportunityId: created.opportunity_id ?? null,
             unitId: input.unitId,
             deposit: input.depositAmount,
           }),
         ],
       );
 
-      // 8. Audit Log
+      // 9. Audit Log
       await recordAuditLog(client, context, {
         action: "CREATE",
         entityType: "reservation",
