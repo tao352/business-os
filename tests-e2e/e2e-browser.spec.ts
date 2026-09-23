@@ -252,6 +252,9 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       page.locator('aside a[href="/app/projects"]'),
     ).not.toBeVisible();
     await expect(page.locator('aside a[href="/app/units"]')).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/opportunities"]'),
+    ).not.toBeVisible();
 
     // Navigate to /app/leads
     await page.goto("/app/leads");
@@ -273,6 +276,13 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       leadDetailRes?.status() === 404 ||
       (await page.locator("body").innerText()).includes("404");
     expect(isLeadDetail404).toBe(true);
+
+    // Negative Test: Direct navigation to Opportunities MUST return 404 / not-found
+    const opportunitiesRes = await page.goto("/app/opportunities");
+    const isOpportunities404 =
+      opportunitiesRes?.status() === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(isOpportunities404).toBe(true);
 
     // Negative Test: Direct navigation to automations MUST return 404 / not-found
     const automationsRes = await page.goto("/app/automations");
@@ -308,9 +318,12 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     // FINANCE can read units -> Units MUST be visible
     await expect(page.locator('aside a[href="/app/units"]')).toBeVisible();
 
-    // FINANCE cannot read projects -> Projects MUST NOT be visible
+    // FINANCE cannot read projects or Opportunities -> both MUST NOT be visible
     await expect(
       page.locator('aside a[href="/app/projects"]'),
+    ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/opportunities"]'),
     ).not.toBeVisible();
 
     // Privileged system items MUST NOT be visible
@@ -344,6 +357,9 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
 
     await page.waitForURL(/\/app(\?.*)?$/);
     await expect(page.locator("body")).toContainText("READ_ONLY");
+    await expect(
+      page.locator('aside a[href="/app/opportunities"]'),
+    ).toBeVisible();
 
     // Topbar 'New Lead' button MUST NOT be visible on Dashboard
     await expect(
@@ -384,6 +400,20 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     await expect(
       page.locator('button[title="Mark complete"]'),
     ).not.toBeVisible();
+
+    // READ_ONLY may inspect Opportunity truth but cannot mutate it.
+    await page.goto(`/app/opportunities/${fixtures.opportunityA.id}`);
+    await page.waitForURL(
+      new RegExp(`/app/opportunities/${fixtures.opportunityA.id}`),
+    );
+    await expect(page.locator("header nav")).toContainText(
+      "Opportunity Details",
+    );
+    await expect(page.locator("body")).toContainText(fixtures.opportunityA.title);
+    await expect(
+      page.getByRole("button", { name: /change stage/i }),
+    ).not.toBeVisible();
+    await expect(page.locator("body")).toContainText("Read-only view");
   });
 
   test("8. Multi-organization switching works under app_user runtime", async ({
