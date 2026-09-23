@@ -36,6 +36,11 @@ interface LeadInterestCardProps {
   interests: LeadPropertyInterest[];
   matchedUnits: MatchedUnitItem[];
   projects: ProjectOption[];
+  opportunities?: Array<{
+    id: string;
+    title: string;
+    stage: string;
+  }>;
   canEdit?: boolean;
   canReserve?: boolean;
 }
@@ -46,6 +51,7 @@ export function LeadInterestCard({
   interests,
   matchedUnits,
   projects,
+  opportunities = [],
   canEdit = true,
   canReserve = true,
 }: LeadInterestCardProps) {
@@ -519,6 +525,7 @@ export function LeadInterestCard({
           onClose={() => setSelectedReserveUnit(null)}
           leadId={leadId}
           leadName={leadName}
+          opportunities={opportunities}
           unit={{
             id: selectedReserveUnit.id,
             unit_number: selectedReserveUnit.unit_number,
