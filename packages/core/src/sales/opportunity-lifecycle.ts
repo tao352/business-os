@@ -3,10 +3,7 @@ import {
   assertCanAccessIndividualLeadRecords,
   assertPermission,
 } from "../permissions/checker.js";
-import {
-  recordAuditLog,
-  type TransactionClient,
-} from "../crm/audit-helper.js";
+import { recordAuditLog, type TransactionClient } from "../crm/audit-helper.js";
 
 export const OPPORTUNITY_STAGES = [
   "DISCOVERY",
