@@ -37,6 +37,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   const canUpdateLead = can(context, "update", "lead", lead);
   const canReassignLead = can(context, "update_all", "lead");
   const canReserveUnit = can(context, "create", "reservation");
+  const canCreateOpportunity = can(context, "create", "opportunity");
 
   // Fetch matched available units, 1:N property interests, and project list for real estate domain
   let matchedUnits: Awaited<ReturnType<typeof getLeadMatchedUnits>> = [];
@@ -106,6 +107,8 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
           members={members}
           canUpdateLead={canUpdateLead}
           canReassignLead={canReassignLead}
+          canCreateOpportunity={canCreateOpportunity}
+          leadName={lead.full_name}
         />
       </div>
 
