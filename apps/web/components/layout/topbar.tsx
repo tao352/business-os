@@ -50,8 +50,15 @@ export function TopBar({
               /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
                 seg,
               );
+            const parentSegment = idx > 0 ? segments[idx - 1] : "";
+            const detailLabel =
+              parentSegment === "opportunities"
+                ? "Opportunity Details"
+                : parentSegment === "leads"
+                  ? "Lead Details"
+                  : "Details";
             const label = isUuid
-              ? "Lead Details"
+              ? detailLabel
               : seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, " ");
 
             return (
