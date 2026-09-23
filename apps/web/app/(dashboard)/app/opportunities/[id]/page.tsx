@@ -45,12 +45,9 @@ export default async function OpportunityDetailPage({
   }
 
   const { opportunity, history } = workspace;
-  const canUpdateOpportunity = can(
-    context,
-    "update",
-    "opportunity",
-    opportunity,
-  );
+  const canUpdateOpportunity = can(context, "update", "opportunity", {
+    assigned_user_id: opportunity.assigned_user_id,
+  });
 
   return (
     <div className="space-y-6">
