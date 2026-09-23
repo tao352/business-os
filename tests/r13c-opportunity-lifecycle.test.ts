@@ -11,6 +11,7 @@ import {
   createProject,
   createReservation,
   createUnit,
+  expireStaleReservations,
   ForbiddenError,
   getExecutiveDashboard,
   inviteMember,
@@ -501,5 +502,136 @@ describe("R1.3C Opportunity lifecycle", () => {
     const dashboard = await getExecutiveDashboard(context);
     expect(dashboard.pipelineValue).toBe(1_000_000);
     expect(dashboard.totalContracts).toBe(3);
+  });
+
+  it("keeps Opportunity open when a linked Reservation expires", async () => {
+    const { suffix, context, units } = await createR13cFixture("Expiry");
+    const lead = await createLead(context, {
+      fullName: "Expiry Customer",
+      phone: `575${suffix}`,
+    });
+    const opportunity = await createOpportunity(context, {
+      leadId: lead.id,
+      title: "Expiring reservation opportunity",
+      value: 2_300_000,
+      currency: "EGP",
+    });
+    const reservation = await createReservation(context, {
+      leadId: lead.id,
+      unitId: units[0]!.id,
+      opportunityId: opportunity.id,
+      depositAmount: 45_000,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    await withTenantContext(context.organizationId, async (tx) => {
+      await tx.query(
+        `UPDATE reservations
+         SET expires_at = NOW() - INTERVAL '1 hour'
+         WHERE organization_id = $1 AND id = $2`,
+        [context.organizationId, reservation.id],
+      );
+    });
+
+    const result = await expireStaleReservations(context);
+    expect(result.expiredReservationIds).toContain(reservation.id);
+    expect((await readReservation(context, reservation.id)).status).toBe(
+      "EXPIRED",
+    );
+    expect((await readOpportunity(context, opportunity.id)).stage).toBe(
+      "NEGOTIATION",
+    );
+  });
+
+  it("derives WON when Contracts are created directly as ACTIVE or COMPLETED", async () => {
+    const { suffix, context, units } = await createR13cFixture(
+      "DirectExecution",
+    );
+
+    const activeLead = await createLead(context, {
+      fullName: "Active Contract Customer",
+      phone: `576${suffix}1`,
+    });
+    const activeOpportunity = await createOpportunity(context, {
+      leadId: activeLead.id,
+      title: "Active contract opportunity",
+      value: 2_400_000,
+      currency: "EGP",
+    });
+
+    const activeContract = await createContract(context, {
+      leadId: activeLead.id,
+      unitId: units[0]!.id,
+      opportunityId: activeOpportunity.id,
+      contractNumber: `R13C-ACTIVE-DIRECT-${suffix}`,
+      contractValue: 2_400_000,
+      status: "ACTIVE",
+    });
+    expect(activeContract.status).toBe("ACTIVE");
+    expect((await readOpportunity(context, activeOpportunity.id)).stage).toBe(
+      "WON",
+    );
+
+    const completedLead = await createLead(context, {
+      fullName: "Completed Contract Customer",
+      phone: `576${suffix}2`,
+    });
+    const completedOpportunity = await createOpportunity(context, {
+      leadId: completedLead.id,
+      title: "Completed contract opportunity",
+      value: 2_600_000,
+      currency: "EGP",
+    });
+
+    const completedContract = await createContract(context, {
+      leadId: completedLead.id,
+      unitId: units[1]!.id,
+      opportunityId: completedOpportunity.id,
+      contractNumber: `R13C-COMPLETED-DIRECT-${suffix}`,
+      contractValue: 2_600_000,
+      status: "COMPLETED",
+    });
+    expect(completedContract.status).toBe("COMPLETED");
+    expect(
+      (await readOpportunity(context, completedOpportunity.id)).stage,
+    ).toBe("WON");
+  });
+
+  it("keeps Opportunity lifecycle and history isolated between tenants", async () => {
+    const first = await createR13cFixture("TenantA");
+    const second = await createR13cFixture("TenantB");
+
+    const lead = await createLead(first.context, {
+      fullName: "Tenant A Customer",
+      phone: `577${first.suffix}`,
+    });
+    const opportunity = await createOpportunity(first.context, {
+      leadId: lead.id,
+      title: "Tenant-isolated opportunity",
+      value: 1_800_000,
+      currency: "EGP",
+    });
+
+    await expect(
+      updateOpportunityStage(second.context, opportunity.id, "PROPOSAL"),
+    ).rejects.toThrow("Opportunity not found");
+
+    const foreignHistoryCount = await withTenantContext(
+      second.context.organizationId,
+      async (tx) => {
+        const res = await tx.query(
+          `SELECT COUNT(*)::int AS count
+           FROM opportunity_stage_history
+           WHERE opportunity_id = $1`,
+          [opportunity.id],
+        );
+        return Number(res.rows[0]?.count ?? 0);
+      },
+    );
+
+    expect(foreignHistoryCount).toBe(0);
+    expect((await readOpportunity(first.context, opportunity.id)).stage).toBe(
+      "DISCOVERY",
+    );
   });
 });
