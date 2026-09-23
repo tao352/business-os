@@ -6,30 +6,33 @@ import {
 } from "../permissions/checker.js";
 import { assertActiveTenantMember } from "../permissions/tenant-member-guard.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
+import {
+  OPPORTUNITY_STAGES,
+  OPPORTUNITY_LOST_REASONS,
+  OPEN_OPPORTUNITY_STAGES,
+  assertOpportunityLostReason,
+  assertOpportunityStage,
+  isOpenOpportunityStage,
+  recordInitialOpportunityStageInTransaction,
+  transitionOpportunityStageInTransaction,
+  type OpenOpportunityStage,
+  type OpportunityLifecycleRow,
+  type OpportunityLostReason,
+  type OpportunityStage,
+} from "./opportunity-lifecycle.js";
 
-export const OPPORTUNITY_STAGES = [
-  "DISCOVERY",
-  "PROPOSAL",
-  "NEGOTIATION",
-  "WON",
-  "LOST",
-] as const;
+export {
+  OPPORTUNITY_STAGES,
+  OPPORTUNITY_LOST_REASONS,
+  OPEN_OPPORTUNITY_STAGES,
+} from "./opportunity-lifecycle.js";
+export type {
+  OpenOpportunityStage,
+  OpportunityLostReason,
+  OpportunityStage,
+} from "./opportunity-lifecycle.js";
 
-export type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number];
-
-export interface Opportunity {
-  id: string;
-  organization_id: string;
-  lead_id: string;
-  title: string;
-  value: string | number;
-  currency: string;
-  stage: OpportunityStage;
-  expected_close_date: string | Date | null;
-  assigned_user_id: string | null;
-  custom_data: Record<string, unknown>;
-  created_at: string | Date;
-  updated_at: string | Date;
+export interface Opportunity extends OpportunityLifecycleRow {
   lead_name?: string;
   assignee_name?: string | null;
 }
@@ -43,20 +46,19 @@ export interface CreateOpportunityInput {
   expectedCloseDate?: string | null;
   assignedUserId?: string | null;
   customData?: Record<string, unknown>;
+  lostReasonCode?: OpportunityLostReason;
+  lostReasonNotes?: string | null;
+}
+
+export interface UpdateOpportunityStageOptions {
+  lostReasonCode?: OpportunityLostReason;
+  lostReasonNotes?: string | null;
 }
 
 export interface ListOpportunitiesFilters {
   stage?: OpportunityStage;
   leadId?: string;
   assignedUserId?: string;
-}
-
-function assertOpportunityStage(
-  value: string,
-): asserts value is OpportunityStage {
-  if (!OPPORTUNITY_STAGES.includes(value as OpportunityStage)) {
-    throw new Error(`Invalid Opportunity stage '${value}'`);
-  }
 }
 
 function normalizeTitle(title: string): string {
@@ -80,8 +82,8 @@ function assertOpportunityValue(value: number): void {
  * Creates the commercial opportunity attached to a Lead.
  *
  * The physical table remains `deals` during the R1 migration. The Sales
- * domain is now the authoritative application boundary for forecast pipeline
- * state; CRM compatibility wrappers delegate here.
+ * domain is the authoritative application boundary for forecast pipeline state;
+ * CRM compatibility wrappers delegate here.
  */
 export async function createOpportunity(
   context: TenantContext,
@@ -93,6 +95,18 @@ export async function createOpportunity(
   assertOpportunityValue(input.value);
   const stage = input.stage ?? "DISCOVERY";
   assertOpportunityStage(stage);
+
+  if (input.lostReasonCode) {
+    assertOpportunityLostReason(input.lostReasonCode);
+  }
+  if (stage === "LOST" && !input.lostReasonCode) {
+    throw new Error("Opportunity lost reason is required");
+  }
+  if (stage !== "LOST" && (input.lostReasonCode || input.lostReasonNotes)) {
+    throw new Error(
+      "Opportunity lost reason metadata can only be set when stage is LOST",
+    );
+  }
 
   return await withTenantContext(context.organizationId, async (tx) => {
     const leadRes = await tx.query<{
@@ -135,11 +149,21 @@ export async function createOpportunity(
       assigned_user_id: assignedUserId,
     });
 
+    const isClosed = stage === "WON" || stage === "LOST";
+    const reasonCode = stage === "LOST" ? (input.lostReasonCode ?? null) : null;
+    const reasonNotes =
+      stage === "LOST" ? input.lostReasonNotes?.trim() || null : null;
+
     const res = await tx.query<Opportunity>(
       `INSERT INTO deals (
         organization_id, lead_id, title, value, currency,
-        stage, expected_close_date, assigned_user_id, custom_data
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        stage, expected_close_date, assigned_user_id, custom_data,
+        stage_entered_at, closed_at, lost_reason_code, lost_reason_notes
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        NOW(), CASE WHEN $10::boolean THEN NOW() ELSE NULL END, $11, $12
+      )
       RETURNING *`,
       [
         context.organizationId,
@@ -151,6 +175,9 @@ export async function createOpportunity(
         input.expectedCloseDate ?? null,
         assignedUserId,
         JSON.stringify(input.customData ?? {}),
+        isClosed,
+        reasonCode,
+        reasonNotes,
       ],
     );
 
@@ -158,6 +185,12 @@ export async function createOpportunity(
     if (!opportunity) {
       throw new Error("Failed to create opportunity");
     }
+
+    await recordInitialOpportunityStageInTransaction(tx, context, opportunity, {
+      reasonCode,
+      reasonNotes,
+      metadata: { source: "opportunity_created" },
+    });
 
     await recordAuditLog(tx, context, {
       action: "CREATE",
@@ -191,86 +224,69 @@ export async function createOpportunity(
 }
 
 /**
- * Changes forecast pipeline stage for one Opportunity.
+ * Manually changes forecast pipeline stage for one Opportunity.
+ *
+ * LOST requires an Opportunity-level reason. LOST can only be reopened through
+ * reopenOpportunity(); WON remains terminal in the normal product flow.
  */
 export async function updateOpportunityStage(
   context: TenantContext,
   opportunityId: string,
   newStage: OpportunityStage,
+  options: UpdateOpportunityStageOptions = {},
 ): Promise<Opportunity> {
   assertPermission(context, "update", "opportunity");
   assertOpportunityStage(newStage);
 
+  if (options.lostReasonCode) {
+    assertOpportunityLostReason(options.lostReasonCode);
+  }
+
   return await withTenantContext(context.organizationId, async (tx) => {
-    const existingRes = await tx.query<
-      Opportunity & { lead_assigned_user_id: string | null }
-    >(
-      `SELECT d.*, l.assigned_user_id AS lead_assigned_user_id
-       FROM deals d
-       JOIN leads l
-         ON l.organization_id = d.organization_id
-        AND l.id = d.lead_id
-       WHERE d.organization_id = $1 AND d.id = $2
-       FOR UPDATE OF d`,
-      [context.organizationId, opportunityId],
-    );
-    const opportunity = existingRes.rows[0];
-    if (!opportunity) {
-      throw new Error("Opportunity not found");
-    }
-
-    assertPermission(context, "update", "opportunity", {
-      assigned_user_id: opportunity.assigned_user_id,
-    });
-    assertCanAccessIndividualLeadRecords(context, {
-      assigned_user_id: opportunity.lead_assigned_user_id,
-    });
-
-    if (opportunity.stage === newStage) {
-      return opportunity;
-    }
-
-    const res = await tx.query<Opportunity>(
-      `UPDATE deals
-       SET stage = $1, updated_at = NOW()
-       WHERE organization_id = $2 AND id = $3
-       RETURNING *`,
-      [newStage, context.organizationId, opportunityId],
-    );
-    const updated = res.rows[0];
-    if (!updated) {
-      throw new Error("Failed to update opportunity stage");
-    }
-
-    await recordAuditLog(tx, context, {
-      action: "UPDATE",
-      // Preserve the existing audit entity discriminator until the physical
-      // Deal-to-Opportunity migration is intentionally performed.
-      entityType: "deal",
-      entityId: opportunityId,
-      beforeState: { stage: opportunity.stage },
-      afterState: { stage: newStage },
-    });
-
-    await tx.query(
-      `INSERT INTO activities (
-        organization_id, lead_id, user_id, activity_type, summary, details
-      ) VALUES ($1, $2, $3, 'STATUS_CHANGE', $4, $5)`,
-      [
-        context.organizationId,
-        opportunity.lead_id,
-        context.userId,
-        `Deal "${opportunity.title}" stage changed from ${opportunity.stage} to ${newStage}`,
-        JSON.stringify({
-          opportunityId,
-          dealId: opportunityId,
-          oldStage: opportunity.stage,
-          newStage,
-        }),
-      ],
+    const result = await transitionOpportunityStageInTransaction(
+      tx,
+      context,
+      opportunityId,
+      newStage,
+      {
+        source: "manual",
+        authorizeUpdate: true,
+        lostReasonCode: options.lostReasonCode,
+        lostReasonNotes: options.lostReasonNotes,
+      },
     );
 
-    return updated;
+    return result.opportunity;
+  });
+}
+
+/**
+ * Explicitly reopens a LOST Opportunity into an open forecast stage.
+ */
+export async function reopenOpportunity(
+  context: TenantContext,
+  opportunityId: string,
+  targetStage: OpenOpportunityStage = "DISCOVERY",
+): Promise<Opportunity> {
+  assertPermission(context, "update", "opportunity");
+
+  if (!isOpenOpportunityStage(targetStage)) {
+    throw new Error("A reopened Opportunity must target an open stage");
+  }
+
+  return await withTenantContext(context.organizationId, async (tx) => {
+    const result = await transitionOpportunityStageInTransaction(
+      tx,
+      context,
+      opportunityId,
+      targetStage,
+      {
+        source: "opportunity_reopened",
+        authorizeUpdate: true,
+      },
+    );
+
+    return result.opportunity;
   });
 }
 
