@@ -21,6 +21,11 @@ interface ReserveUnitDialogProps {
     price: number;
     currency?: string;
   };
+  opportunities?: Array<{
+    id: string;
+    title: string;
+    stage: string;
+  }>;
   onSuccess?: () => void;
 }
 
@@ -30,12 +35,16 @@ export function ReserveUnitDialog({
   leadId,
   leadName,
   unit,
+  opportunities = [],
   onSuccess,
 }: ReserveUnitDialogProps) {
   const [depositAmount, setDepositAmount] = useState(
     Math.round(unit.price * 0.05),
   );
   const [holdDays, setHoldDays] = useState(3);
+  const [opportunityId, setOpportunityId] = useState(
+    opportunities.length === 1 ? opportunities[0]!.id : "",
+  );
   const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
   const [notes, setNotes] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -54,6 +63,7 @@ export function ReserveUnitDialog({
     const res = await reserveUnitAction({
       leadId,
       unitId: unit.id,
+      opportunityId: opportunityId || undefined,
       depositAmount: Number(depositAmount),
       currency: unit.currency || "EGP",
       expiresAt,
@@ -112,6 +122,31 @@ export function ReserveUnitDialog({
             </span>
           </div>
         </div>
+
+
+        {opportunities.length > 0 && (
+          <div>
+            <label className="block text-xs font-semibold text-ink mb-1">
+              Link to Sales Opportunity
+            </label>
+            <Select
+              value={opportunityId}
+              onChange={(e) => setOpportunityId(e.target.value)}
+              disabled={isLoading}
+              className="text-xs"
+            >
+              <option value="">No Opportunity (legacy / direct reservation)</option>
+              {opportunities.map((opportunity) => (
+                <option key={opportunity.id} value={opportunity.id}>
+                  {opportunity.title} — {opportunity.stage}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-ink-faint mt-1">
+              Linking the Reservation advances that Opportunity to NEGOTIATION.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
