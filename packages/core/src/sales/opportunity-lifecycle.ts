@@ -39,8 +39,7 @@ export const OPPORTUNITY_LOST_REASONS = [
   "OTHER",
 ] as const;
 
-export type OpportunityLostReason =
-  (typeof OPPORTUNITY_LOST_REASONS)[number];
+export type OpportunityLostReason = (typeof OPPORTUNITY_LOST_REASONS)[number];
 
 export const OPPORTUNITY_TRANSITION_SOURCES = [
   "opportunity_created",
@@ -127,10 +126,7 @@ function assertRequestedTransitionShape(
     throw new Error("Contract-derived Opportunity transitions must target WON");
   }
 
-  if (
-    source === "opportunity_reopened" &&
-    !isOpenOpportunityStage(newStage)
-  ) {
+  if (source === "opportunity_reopened" && !isOpenOpportunityStage(newStage)) {
     throw new Error("A reopened Opportunity must target an open stage");
   }
 }
