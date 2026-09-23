@@ -219,3 +219,67 @@ export const addLeadInterestSchema = z.object({
   isPrimary: z.boolean().default(true),
   notes: z.string().trim().max(1000).optional().or(z.literal("")).nullable(),
 });
+
+
+export const createOpportunitySchema = z.object({
+  leadId: z.string().uuid("Invalid lead ID"),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Opportunity title is required")
+    .max(200, "Opportunity title is too long"),
+  value: z.coerce
+    .number()
+    .min(0, "Opportunity value cannot be negative")
+    .finite("Opportunity value must be a valid number"),
+  currency: z.string().trim().min(1).max(10).default("EGP"),
+  expectedCloseDate: z.string().optional().or(z.literal("")).nullable(),
+  assignedUserId: z
+    .string()
+    .uuid("Invalid assignee ID")
+    .optional()
+    .or(z.literal(""))
+    .nullable(),
+});
+
+export const updateOpportunityStageSchema = z
+  .object({
+    opportunityId: z.string().uuid("Invalid Opportunity ID"),
+    newStage: z.enum([
+      "DISCOVERY",
+      "PROPOSAL",
+      "NEGOTIATION",
+      "WON",
+      "LOST",
+    ]),
+    lostReasonCode: z
+      .enum([
+        "PRICE",
+        "FINANCING",
+        "TIMING",
+        "COMPETITOR",
+        "NO_RESPONSE",
+        "AVAILABILITY",
+        "REQUIREMENTS_MISMATCH",
+        "CUSTOMER_WITHDREW",
+        "DUPLICATE",
+        "OTHER",
+      ])
+      .optional()
+      .nullable(),
+    lostReasonNotes: z.string().trim().max(1000).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.newStage === "LOST" && !data.lostReasonCode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["lostReasonCode"],
+        message: "A loss reason is required when closing an Opportunity",
+      });
+    }
+  });
+
+export const reopenOpportunitySchema = z.object({
+  opportunityId: z.string().uuid("Invalid Opportunity ID"),
+  targetStage: z.enum(["DISCOVERY", "PROPOSAL", "NEGOTIATION"]),
+});
