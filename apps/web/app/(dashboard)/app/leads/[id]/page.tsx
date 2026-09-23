@@ -7,6 +7,7 @@ import {
   getLeadMatchedUnits,
   listProjects,
   listLeadInterests,
+  listOpportunities,
   can,
 } from "@business-os/core";
 import { requireTenantContext } from "@/lib/auth";
@@ -43,6 +44,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   let matchedUnits: Awaited<ReturnType<typeof getLeadMatchedUnits>> = [];
   let projects: Awaited<ReturnType<typeof listProjects>> = [];
   let interests: Awaited<ReturnType<typeof listLeadInterests>> = [];
+  let opportunities: Awaited<ReturnType<typeof listOpportunities>> = [];
 
   try {
     interests = await listLeadInterests(context, id);
@@ -60,6 +62,17 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
     projects = await listProjects(context);
   } catch {
     projects = [];
+  }
+
+  try {
+    opportunities = (await listOpportunities(context, { leadId: id })).filter(
+      (opportunity) =>
+        opportunity.stage === "DISCOVERY" ||
+        opportunity.stage === "PROPOSAL" ||
+        opportunity.stage === "NEGOTIATION",
+    );
+  } catch {
+    opportunities = [];
   }
 
   return (
@@ -123,6 +136,11 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
             interests={interests}
             matchedUnits={matchedUnits}
             projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+            opportunities={opportunities.map((opportunity) => ({
+              id: opportunity.id,
+              title: opportunity.title,
+              stage: opportunity.stage,
+            }))}
             canEdit={canUpdateLead}
             canReserve={canReserveUnit}
           />
