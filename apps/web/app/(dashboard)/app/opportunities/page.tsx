@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import {
   getUiCapabilities,
   listOpportunitiesPage,
@@ -26,6 +27,10 @@ export default async function OpportunitiesPage({
 }: OpportunitiesPageProps) {
   const context = await requireTenantContext();
   const capabilities = getUiCapabilities(context);
+  if (!capabilities.canReadOpportunities) {
+    notFound();
+  }
+
   const params = await searchParams;
   const currentPage = Math.max(1, parseInt(params.page || "1", 10));
   const pageSize = 20;
