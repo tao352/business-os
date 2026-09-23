@@ -151,15 +151,10 @@ describe("R1.3C Opportunity lifecycle", () => {
       updateOpportunityStage(context, opportunity.id, "LOST"),
     ).rejects.toThrow("Opportunity lost reason is required");
 
-    const lost = await updateOpportunityStage(
-      context,
-      opportunity.id,
-      "LOST",
-      {
-        lostReasonCode: "PRICE",
-        lostReasonNotes: "Customer decided the budget is too high.",
-      },
-    );
+    const lost = await updateOpportunityStage(context, opportunity.id, "LOST", {
+      lostReasonCode: "PRICE",
+      lostReasonNotes: "Customer decided the budget is too high.",
+    });
     expect(lost.stage).toBe("LOST");
     expect(lost.lost_reason_code).toBe("PRICE");
     expect(lost.closed_at).toBeTruthy();
@@ -230,8 +225,7 @@ describe("R1.3C Opportunity lifecycle", () => {
   });
 
   it("advances only the linked Opportunity on Reservation and never auto-loses it on cancellation", async () => {
-    const { suffix, context, units } =
-      await createR13cFixture("Reservation");
+    const { suffix, context, units } = await createR13cFixture("Reservation");
     const lead = await createLead(context, {
       fullName: "Reservation Customer",
       phone: `571${suffix}`,
@@ -438,10 +432,7 @@ describe("R1.3C Opportunity lifecycle", () => {
   });
 
   it("uses only open Opportunities for forecast and counts executed Contract states", async () => {
-    const { suffix, context, units } = await createR13cFixture(
-      "Analytics",
-      7,
-    );
+    const { suffix, context, units } = await createR13cFixture("Analytics", 7);
     const lead = await createLead(context, {
       fullName: "Analytics Customer",
       phone: `574${suffix}`,
@@ -544,9 +535,8 @@ describe("R1.3C Opportunity lifecycle", () => {
   });
 
   it("derives WON when Contracts are created directly as ACTIVE or COMPLETED", async () => {
-    const { suffix, context, units } = await createR13cFixture(
-      "DirectExecution",
-    );
+    const { suffix, context, units } =
+      await createR13cFixture("DirectExecution");
 
     const activeLead = await createLead(context, {
       fullName: "Active Contract Customer",
