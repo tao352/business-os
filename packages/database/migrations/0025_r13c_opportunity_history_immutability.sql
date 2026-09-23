@@ -7,7 +7,7 @@
 -- actors may hold broader table privileges. Enforce append-only semantics at
 -- the table boundary just like audit_logs.
 
-CREATE OR REPLACE FUNCTION prevent_opportunity_stage_history_mutation()
+CREATE OR REPLACE FUNCTION public.prevent_opportunity_stage_history_mutation()
 RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION
@@ -21,4 +21,4 @@ DROP TRIGGER IF EXISTS trg_prevent_opportunity_stage_history_mutation
 CREATE TRIGGER trg_prevent_opportunity_stage_history_mutation
 BEFORE UPDATE OR DELETE ON public.opportunity_stage_history
 FOR EACH ROW
-EXECUTE FUNCTION prevent_opportunity_stage_history_mutation();
+EXECUTE FUNCTION public.prevent_opportunity_stage_history_mutation();
