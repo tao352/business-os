@@ -165,6 +165,12 @@ export const createUnitSchema = z.object({
 export const reserveUnitSchema = z.object({
   leadId: z.string().uuid("Invalid lead ID"),
   unitId: z.string().uuid("Invalid unit ID"),
+  opportunityId: z
+    .string()
+    .uuid("Invalid Opportunity ID")
+    .optional()
+    .or(z.literal(""))
+    .nullable(),
   depositAmount: z.coerce
     .number()
     .positive("Deposit amount must be greater than 0"),
