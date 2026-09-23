@@ -9,6 +9,7 @@ import {
 import { assertPermission } from "../permissions/checker.js";
 import { recordAuditLog } from "../crm/audit-helper.js";
 import { transitionLeadStageInTransaction } from "../crm/lead-lifecycle.js";
+import { transitionOpportunityStageInTransaction } from "../sales/opportunity-lifecycle.js";
 
 export interface CreateContractInput {
   reservationId?: string;
@@ -52,7 +53,8 @@ export async function createContract(
     }
 
     const status = input.status ?? "DRAFT";
-    const isExecuted = status === "SIGNED" || status === "ACTIVE";
+    const isExecuted =
+      status === "SIGNED" || status === "ACTIVE" || status === "COMPLETED";
     let opportunityId = input.opportunityId ?? null;
 
     // 2. If linked to a Reservation, lock it second and verify it belongs
@@ -168,8 +170,28 @@ export async function createContract(
       throw new Error("Failed to create contract");
     }
 
-    // 4. If executed, transition unit & lead status to CONTRACTED
+    // 4. Executed Contracts are authoritative evidence that the linked
+    // commercial Opportunity was won. This system-derived transition does not
+    // grant the Contract actor arbitrary Sales Opportunity update permission.
     if (isExecuted) {
+      if (opportunityId) {
+        await transitionOpportunityStageInTransaction(
+          client,
+          context,
+          opportunityId,
+          "WON",
+          {
+            source: "contract_executed",
+            expectedLeadId: input.leadId,
+            metadata: {
+              contractId: created.id,
+              unitId: input.unitId,
+              contractStatus: status,
+            },
+          },
+        );
+      }
+
       await client.query(
         `UPDATE units SET status = 'CONTRACTED', updated_at = NOW() WHERE id = $1`,
         [input.unitId],
@@ -328,7 +350,28 @@ export async function signContract(
     );
     const updated = updateRes.rows[0]!;
 
-    // 4. Contract the already-locked Unit.
+    // 4. Signing a linked Contract derives WON from the authorized Contract
+    // action. Finance can cause this transition without receiving general
+    // Opportunity mutation permission.
+    if (updated.opportunity_id) {
+      await transitionOpportunityStageInTransaction(
+        client,
+        context,
+        updated.opportunity_id,
+        "WON",
+        {
+          source: "contract_executed",
+          expectedLeadId: existing.lead_id,
+          metadata: {
+            contractId,
+            unitId: existing.unit_id,
+            contractStatus: "SIGNED",
+          },
+        },
+      );
+    }
+
+    // 5. Contract the already-locked Unit.
     await client.query(
       `UPDATE units
        SET status = 'CONTRACTED', updated_at = NOW()
@@ -336,7 +379,7 @@ export async function signContract(
       [context.organizationId, existing.unit_id],
     );
 
-    // 5. Progress the Lead through the same lifecycle engine used everywhere else.
+    // 6. Progress the Lead through the same lifecycle engine used everywhere else.
     await transitionLeadStageInTransaction(
       client,
       context,
@@ -352,7 +395,7 @@ export async function signContract(
       },
     );
 
-    // 6. Log activity on timeline
+    // 7. Log activity on timeline
     await client.query(
       `INSERT INTO activities (organization_id, lead_id, user_id, activity_type, summary, details)
        VALUES ($1, $2, $3, 'NOTE', $4, $5)`,
