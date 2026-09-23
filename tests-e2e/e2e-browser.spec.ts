@@ -107,6 +107,60 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     );
   });
 
+  test("2b. Opportunity workspace: navigation -> detail -> stage update", async ({
+    page,
+  }) => {
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userA.email);
+    await page.locator('input[type="password"]').fill(fixtures.userA.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL(/\/app(\?.*)?$/);
+
+    const opportunitiesNav = page.locator(
+      'aside a[href="/app/opportunities"]',
+    );
+    await expect(opportunitiesNav).toBeVisible();
+    await opportunitiesNav.click();
+
+    await page.waitForURL(/\/app\/opportunities/);
+    await expect(page.locator("h1")).toContainText("Opportunities");
+
+    const opportunityRow = page
+      .locator("tr")
+      .filter({ hasText: fixtures.opportunityA.title });
+    await expect(opportunityRow).toBeVisible();
+    await expect(opportunityRow).toContainText("DISCOVERY");
+
+    await opportunityRow.click();
+    await page.waitForURL(
+      new RegExp(`/app/opportunities/${fixtures.opportunityA.id}`),
+    );
+
+    await expect(page.locator("h1")).toContainText(fixtures.opportunityA.title);
+    await expect(page.locator("header nav")).toContainText(
+      "Opportunity Details",
+    );
+    await expect(page.locator("header nav")).not.toContainText(
+      fixtures.opportunityA.id,
+    );
+
+    const changeStage = page.getByRole("button", { name: /change stage/i });
+    await expect(changeStage).toBeVisible();
+    await changeStage.click();
+
+    const dialog = page.locator('div[role="dialog"]');
+    await expect(dialog).toContainText("Change Opportunity Stage");
+    await dialog.locator("select").first().selectOption("PROPOSAL");
+    await dialog.getByRole("button", { name: /apply stage/i }).click();
+    await expect(dialog).not.toBeVisible();
+
+    await expect(page.locator("body")).toContainText("PROPOSAL");
+    await expect(page.locator("body")).toContainText(
+      /Manual sales update|Opportunity Stage History/,
+    );
+  });
+
   test("3. Cross-tenant isolation (Negative Test): Tenant A user cannot access Tenant B lead URL", async ({
     page,
   }) => {
