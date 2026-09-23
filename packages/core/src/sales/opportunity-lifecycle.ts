@@ -43,6 +43,7 @@ export type OpportunityLostReason =
   (typeof OPPORTUNITY_LOST_REASONS)[number];
 
 export const OPPORTUNITY_TRANSITION_SOURCES = [
+  "opportunity_created",
   "manual",
   "reservation_created",
   "contract_executed",
@@ -203,7 +204,7 @@ export async function recordInitialOpportunityStageInTransaction(
       reason_code,
       reason_notes,
       metadata
-    ) VALUES ($1, $2, NULL, $3, $4, 'manual', $5, $6, $7)`,
+    ) VALUES ($1, $2, NULL, $3, $4, 'opportunity_created', $5, $6, $7)`,
     [
       context.organizationId,
       opportunity.id,
