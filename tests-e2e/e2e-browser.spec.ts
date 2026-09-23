@@ -107,6 +107,60 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     );
   });
 
+  test("2b. Opportunity workspace: navigation -> detail -> stage update", async ({
+    page,
+  }) => {
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await page.locator('input[type="email"]').fill(fixtures.userSwitch.email);
+    await page
+      .locator('input[type="password"]')
+      .fill(fixtures.userSwitch.password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL(/\/app(\?.*)?$/);
+
+    const opportunitiesNav = page.locator('aside a[href="/app/opportunities"]');
+    await expect(opportunitiesNav).toBeVisible();
+    await opportunitiesNav.click();
+
+    await page.waitForURL(/\/app\/opportunities/);
+    await expect(page.locator("h1")).toContainText("Opportunities");
+
+    const opportunityRow = page
+      .locator("tr")
+      .filter({ hasText: fixtures.opportunityA.title });
+    await expect(opportunityRow).toBeVisible();
+    await expect(opportunityRow).toContainText("DISCOVERY");
+
+    await opportunityRow.click();
+    await page.waitForURL(
+      new RegExp(`/app/opportunities/${fixtures.opportunityA.id}`),
+    );
+
+    await expect(page.locator("h1")).toContainText(fixtures.opportunityA.title);
+    await expect(page.locator("header nav")).toContainText(
+      "Opportunity Details",
+    );
+    await expect(page.locator("header nav")).not.toContainText(
+      fixtures.opportunityA.id,
+    );
+
+    const changeStage = page.getByRole("button", { name: /change stage/i });
+    await expect(changeStage).toBeVisible();
+    await changeStage.click();
+
+    const dialog = page.locator('div[role="dialog"]');
+    await expect(dialog).toContainText("Change Opportunity Stage");
+    await dialog.locator("select").first().selectOption("PROPOSAL");
+    await dialog.getByRole("button", { name: /apply stage/i }).click();
+    await expect(dialog).not.toBeVisible();
+
+    await expect(page.locator("body")).toContainText("PROPOSAL");
+    await expect(page.locator("body")).toContainText(
+      /Manual sales update|Opportunity Stage History/,
+    );
+  });
+
   test("3. Cross-tenant isolation (Negative Test): Tenant A user cannot access Tenant B lead URL", async ({
     page,
   }) => {
@@ -198,6 +252,9 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       page.locator('aside a[href="/app/projects"]'),
     ).not.toBeVisible();
     await expect(page.locator('aside a[href="/app/units"]')).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/opportunities"]'),
+    ).not.toBeVisible();
 
     // Navigate to /app/leads
     await page.goto("/app/leads");
@@ -219,6 +276,13 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
       leadDetailRes?.status() === 404 ||
       (await page.locator("body").innerText()).includes("404");
     expect(isLeadDetail404).toBe(true);
+
+    // Negative Test: Direct navigation to Opportunities MUST return 404 / not-found
+    const opportunitiesRes = await page.goto("/app/opportunities");
+    const isOpportunities404 =
+      opportunitiesRes?.status() === 404 ||
+      (await page.locator("body").innerText()).includes("404");
+    expect(isOpportunities404).toBe(true);
 
     // Negative Test: Direct navigation to automations MUST return 404 / not-found
     const automationsRes = await page.goto("/app/automations");
@@ -254,10 +318,23 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     // FINANCE can read units -> Units MUST be visible
     await expect(page.locator('aside a[href="/app/units"]')).toBeVisible();
 
-    // FINANCE cannot read projects -> Projects MUST NOT be visible
+    // FINANCE cannot read projects or Opportunities -> both MUST NOT be visible
     await expect(
       page.locator('aside a[href="/app/projects"]'),
     ).not.toBeVisible();
+    await expect(
+      page.locator('aside a[href="/app/opportunities"]'),
+    ).not.toBeVisible();
+
+    // FINANCE may open customer records but must not see the Sales Opportunity surface.
+    await page.goto(`/app/leads/${fixtures.leadA.id}`);
+    await page.waitForURL(new RegExp(`/app/leads/${fixtures.leadA.id}`));
+    await expect(page.locator("body")).not.toContainText("Sales Opportunities");
+    await expect(
+      page.getByRole("button", { name: /new opportunity/i }),
+    ).not.toBeVisible();
+
+    await page.goto("/app");
 
     // Privileged system items MUST NOT be visible
     await expect(
@@ -290,6 +367,9 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
 
     await page.waitForURL(/\/app(\?.*)?$/);
     await expect(page.locator("body")).toContainText("READ_ONLY");
+    await expect(
+      page.locator('aside a[href="/app/opportunities"]'),
+    ).toBeVisible();
 
     // Topbar 'New Lead' button MUST NOT be visible on Dashboard
     await expect(
@@ -330,6 +410,22 @@ test.describe("Phase 21 E2E Browser & Security Suite", () => {
     await expect(
       page.locator('button[title="Mark complete"]'),
     ).not.toBeVisible();
+
+    // READ_ONLY may inspect Opportunity truth but cannot mutate it.
+    await page.goto(`/app/opportunities/${fixtures.opportunityA.id}`);
+    await page.waitForURL(
+      new RegExp(`/app/opportunities/${fixtures.opportunityA.id}`),
+    );
+    await expect(page.locator("header nav")).toContainText(
+      "Opportunity Details",
+    );
+    await expect(page.locator("body")).toContainText(
+      fixtures.opportunityA.title,
+    );
+    await expect(
+      page.getByRole("button", { name: /change stage/i }),
+    ).not.toBeVisible();
+    await expect(page.locator("body")).toContainText("Read-only view");
   });
 
   test("8. Multi-organization switching works under app_user runtime", async ({

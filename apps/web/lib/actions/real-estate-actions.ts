@@ -136,6 +136,7 @@ export async function createUnitAction(
 export async function reserveUnitAction(rawInput: {
   leadId: string;
   unitId: string;
+  opportunityId?: string | null;
   depositAmount: number;
   currency?: string;
   expiresAt: string;
@@ -156,6 +157,7 @@ export async function reserveUnitAction(rawInput: {
     const reservation = await createReservation(context, {
       leadId: parsed.data.leadId,
       unitId: parsed.data.unitId,
+      opportunityId: parsed.data.opportunityId || undefined,
       depositAmount: parsed.data.depositAmount,
       currency: parsed.data.currency,
       expiresAt: parsed.data.expiresAt,
@@ -166,6 +168,10 @@ export async function reserveUnitAction(rawInput: {
     revalidatePath("/app/units");
     revalidatePath(`/app/leads/${parsed.data.leadId}`);
     revalidatePath("/app/leads");
+    revalidatePath("/app/opportunities");
+    if (parsed.data.opportunityId) {
+      revalidatePath(`/app/opportunities/${parsed.data.opportunityId}`);
+    }
     return { success: true, data: reservation };
   } catch (err: unknown) {
     if (err instanceof UnitNotAvailableError) {

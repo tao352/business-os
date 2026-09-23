@@ -10,6 +10,7 @@ import {
   registerUser,
   createOrganization,
   createLead,
+  createOpportunity,
 } from "../packages/core/src/index.js";
 
 async function main() {
@@ -52,6 +53,24 @@ async function main() {
       email: `vip.prospect.${uniqueA}@client.com`,
       source: "ORGANIC",
       budget: 500000,
+    },
+  );
+
+  const opportunityA = await createOpportunity(
+    {
+      organizationId: orgA.id,
+      userId: userA.id,
+      role: "OWNER",
+      correlationId: `e2e-opportunity-${uniqueA}`,
+    },
+    {
+      leadId: leadA.id,
+      title: "E2E Primary Opportunity",
+      value: 2_500_000,
+      currency: "EGP",
+      expectedCloseDate: new Date(
+        Date.now() + 30 * 24 * 60 * 60 * 1000,
+      ).toISOString(),
     },
   );
 
@@ -265,6 +284,13 @@ async function main() {
       fullName: leadA.full_name,
       phone: leadA.phone,
       status: leadA.status,
+    },
+    opportunityA: {
+      id: opportunityA.id,
+      title: opportunityA.title,
+      stage: opportunityA.stage,
+      value: Number(opportunityA.value),
+      currency: opportunityA.currency,
     },
     userB: {
       id: userB.id,
